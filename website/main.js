@@ -22,14 +22,18 @@ window.addEventListener('load', () => {
         'line-join': 'round',
         'line-cap': 'round'
       },
-      'filter': ['all',
+      'filter': [
+        'all',
                 ['==', ['get', 'route'], 'bicycle'],
-                ['!=', ['get', 'state'], 'proposed']],
+        ['!=', ['get', 'state'], 'proposed']
+      ],
       'paint': {
-        'line-color': ['case',
+        'line-color': [
+          'case',
                     ['==', ['get', 'cycle_network'], 'US:NC:Charlotte:Suggested Bike Route'],
                     '#8539C4',
-                    ['all',
+          [
+            'all',
                         ['==', ['get', 'cycle_network'], 'US:NC:Charlotte'],
                         ['has', 'ref']
                     ],
@@ -75,57 +79,53 @@ window.addEventListener('load', () => {
         'line-join': 'round',
         'line-cap': 'round'
       },
-      'filter': [
-        'any',
-        ['==', ['get', 'highway'], 'cycleway'],
-                
-      ],
+      'filter': ['has', 'bicycle'],
       'paint': {
-        'line-color': '#2747c4',
-        'line-width': 1.5,
-      }
-    });
-  
-    map.addLayer({
-      'id': 'cycling-footpaths',
-      'type': 'line',
-      'source': 'cycling-data',
-      'layout': {
-        'line-join': 'round',
-        'line-cap': 'round'
-      },
-      'filter': [
-        'any',
-        ['==', ['get', 'highway'], 'path'],
-        [
-          'all',
-          ['==', ['get', 'highway'], 'footway'],
-                    ['any',
+        'line-color': [
+          'case',
                         ['==', ['get', 'bicycle'], 'yes'],
-                        ['==', ['get', 'bicycle'], 'designated']
-                    ]
+          '#0DDD37',
+          ['==', ['get', 'bicycle'], 'designated'],
+          '#2747c4',
+          '#2747c4'
         ],
-  
-      ],
-      'paint': {
-        'line-color': '#027d62',
         'line-width': 1.5,
       }
     });
+  
+    // map.addLayer({
+    //   'id': 'cycling-footpaths',
+    //   'type': 'line',
+    //   'source': 'cycling-data',
+    //   'layout': {
+    //     'line-join': 'round',
+    //     'line-cap': 'round'
+    //   },
+    //   'filter': [
+    //     'any',
+    //     ['==', ['get', 'highway'], 'path'],
+    //     [
+    //       'all',
+    //       ['==', ['get', 'highway'], 'footway'],
+    //                 ['any',
+    //                     ['==', ['get', 'bicycle'], 'yes'],
+    //                     ['==', ['get', 'bicycle'], 'designated']
+    //                 ]
+    //     ],
+  
+    //   ],
+    //   'paint': {
+    //     'line-color': '#027d62',
+    //     'line-width': 1.5,
+    //   }
+    // });
   
     map.addLayer({
       'id': 'cycling-lanes-right',
       'type': 'line',
       'source': 'cycling-data',
       'layout': {},
-      'filter': ['all',
-        ['!=', ['get', 'highway'], 'cycleway'],
-        ['any',
-          ['has', 'cycleway:right'],
-          ['has', 'cycleway:both'],
-          ['has', 'cycleway']
-        ]
-      ],
+      'filter': ['has', 'cyclewayRight'],
       'paint': {
         'line-color': '#2747c4',
         'line-width': [
@@ -138,33 +138,22 @@ window.addEventListener('load', () => {
           4
         ],
         'line-dasharray': [
-          'let', 'cyclewayValue', ['coalesce',
-            ['get', 'cycleway:right'],
-            ['get', 'cycleway:both'],
-            ['get', 'cycleway']
-          ],
-          'cyclewayBufferValue', ['coalesce',
-            ['get', 'cycleway:right:buffer'],
-            ['get', 'cycleway:both:buffer'],
-            ['get', 'cycleway:buffer']
-          ],
-          ['case',
-            ['==', ['var', 'cyclewayValue'], 'track'],
+          'case',
+          ['==', ['get', 'cyclewayRight'], 'track'],
             ['literal', [1]],
             ['all',
-              ['==', ['var', 'cyclewayValue'], 'lane'],
-              ['any',
-                ['==', ['var', 'cyclewayBufferValue'], 'yes'],
-                ['>', ['number', ['var', 'cyclewayBufferValue'], 0], 0]
-              ],
+            ['==', ['get', 'cyclewayRight'], 'lane'],
+            // ['any',
+            //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
+            //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
+            // ],
             ],
             ['literal', [2, 2]],
-            ['==', ['var', 'cyclewayValue'], 'lane'],
+          ['==', ['get', 'cyclewayRight'], 'lane'],
             ['literal', [2, 4]],
-            ['==', ['var', 'cyclewayValue'], 'shared_lane'],
+          ['==', ['get', 'cyclewayRight'], 'shared_lane'],
             ['literal', [2, 8]],
             ['literal', []]
-          ]
         ],
         'line-offset': [
           'interpolate',
@@ -183,15 +172,7 @@ window.addEventListener('load', () => {
       'type': 'line',
       'source': 'cycling-data',
       'layout': {},
-      'filter': [
-                'all',
-                ['!=', ['get', 'highway'], 'cycleway'],
-                ['any',
-                    ['has', 'cycleway:left'],
-                    ['has', 'cycleway:both'],
-                    ['has', 'cycleway'],
-                ]
-            ],
+      'filter': ['has', 'cyclewayLeft'],
       'paint': {
         'line-color': '#2747c4',
         'line-width': [
@@ -204,33 +185,22 @@ window.addEventListener('load', () => {
           4
         ],
         'line-dasharray': [
-          'let', 'cyclewayValue', ['coalesce',
-            ['get', 'cycleway:left'],
-            ['get', 'cycleway:both'],
-            ['get', 'cycleway']
-          ],
-          'cyclewayBufferValue', ['coalesce',
-            ['get', 'cycleway:left:buffer'],
-            ['get', 'cycleway:both:buffer'],
-            ['get', 'cycleway:buffer']
-          ],
-          ['case',
-            ['==', ['var', 'cyclewayValue'], 'track'],
+          'case',
+          ['==', ['get', 'cyclewayLeft'], 'track'],
             ['literal', [1]],
             ['all',
-              ['==', ['var', 'cyclewayValue'], 'lane'],
-              ['any',
-                ['==', ['var', 'cyclewayBufferValue'], 'yes'],
-                ['>', ['number', ['var', 'cyclewayBufferValue'], 0], 0]
-              ],
+            ['==', ['get', 'cyclewayLeft'], 'lane'],
+            // ['any',
+            //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
+            //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
+            // ],
             ],
             ['literal', [2, 2]],
-            ['==', ['var', 'cyclewayValue'], 'lane'],
+          ['==', ['get', 'cyclewayLeft'], 'lane'],
             ['literal', [2, 4]],
-            ['==', ['var', 'cyclewayValue'], 'shared_lane'],
+          ['==', ['get', 'cyclewayLeft'], 'shared_lane'],
             ['literal', [2, 8]],
             ['literal', []]
-          ]
         ],
         'line-offset': [
           'interpolate',
