@@ -11,10 +11,10 @@ window.addEventListener('load', () => {
   
     map.addSource('cycling-data', {
       type: 'geojson',
-      data: 'https://raw.githubusercontent.com/seanerice/clt-bicycle-map/main/data/export.geojson'
+      data: 'https://data.bikemap.seanerice.dev/export.geojson'
     });
         
-        map.addLayer({
+    map.addLayer({
       'id': 'cycling-route-lines',
       'type': 'line',
       'source': 'cycling-data',
@@ -24,22 +24,24 @@ window.addEventListener('load', () => {
       },
       'filter': [
         'all',
-                ['==', ['get', 'route'], 'bicycle'],
+        ['==', ['get', 'route'], 'bicycle'],
         ['!=', ['get', 'state'], 'proposed']
       ],
       'paint': {
         'line-color': [
           'case',
-                    ['==', ['get', 'cycle_network'], 'US:NC:Charlotte:Suggested Bike Route'],
-                    '#8539C4',
+          ['==', ['get', 'cycle_network'], 'US:NC:Charlotte:Suggested Bike Route'],
+          '#8539C4',
           [
             'all',
-                        ['==', ['get', 'cycle_network'], 'US:NC:Charlotte'],
-                        ['has', 'ref']
-                    ],
-                    '#3964C4',
-                    '#3964C4'
-                ],
+            ['==', ['get', 'cycle_network'], 'US:NC:Charlotte'],
+            ['has', 'ref']
+          ],
+          '#e6c627',
+          ['==', ['get', 'cycle_network'], 'US:NC:Mecklenburg'],
+          '#3964C4',
+          '#ababab'
+        ],
         'line-width': [
           'interpolate',
           ['linear'],
@@ -83,7 +85,7 @@ window.addEventListener('load', () => {
       'paint': {
         'line-color': [
           'case',
-                        ['==', ['get', 'bicycle'], 'yes'],
+          ['==', ['get', 'bicycle'], 'yes'],
           '#0DDD37',
           ['==', ['get', 'bicycle'], 'designated'],
           '#2747c4',
@@ -140,20 +142,20 @@ window.addEventListener('load', () => {
         'line-dasharray': [
           'case',
           ['==', ['get', 'cyclewayRight'], 'track'],
-            ['literal', [1]],
-            ['all',
+          ['literal', [1]],
+          ['all',
             ['==', ['get', 'cyclewayRight'], 'lane'],
             // ['any',
             //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
             //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
             // ],
-            ],
-            ['literal', [2, 2]],
+          ],
+          ['literal', [2, 2]],
           ['==', ['get', 'cyclewayRight'], 'lane'],
-            ['literal', [2, 4]],
+          ['literal', [2, 4]],
           ['==', ['get', 'cyclewayRight'], 'shared_lane'],
-            ['literal', [2, 8]],
-            ['literal', []]
+          ['literal', [2, 8]],
+          ['literal', []]
         ],
         'line-offset': [
           'interpolate',
@@ -187,20 +189,20 @@ window.addEventListener('load', () => {
         'line-dasharray': [
           'case',
           ['==', ['get', 'cyclewayLeft'], 'track'],
-            ['literal', [1]],
-            ['all',
+          ['literal', [1]],
+          ['all',
             ['==', ['get', 'cyclewayLeft'], 'lane'],
             // ['any',
             //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
             //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
             // ],
-            ],
-            ['literal', [2, 2]],
+          ],
+          ['literal', [2, 2]],
           ['==', ['get', 'cyclewayLeft'], 'lane'],
-            ['literal', [2, 4]],
+          ['literal', [2, 4]],
           ['==', ['get', 'cyclewayLeft'], 'shared_lane'],
-            ['literal', [2, 8]],
-            ['literal', []]
+          ['literal', [2, 8]],
+          ['literal', []]
         ],
         'line-offset': [
           'interpolate',
