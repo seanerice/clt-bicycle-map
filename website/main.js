@@ -1,3 +1,12 @@
+const roadwayPalette = {
+  cycleTrack: '#2C9E30',
+  bufferedLane: '#8EC210',
+  lane: '#FF8E15',
+  shareBusway: '#FF8E15',
+  sharedLane: '#FF8E15',
+  none: '#FF0D0D'
+};
+
 window.addEventListener('load', () => {
   mapboxgl.accessToken = 'pk.eyJ1Ijoic2VhbmVyaWNlIiwiYSI6ImNsZ28zZjMwdjA4cHozam55NXg3ejFxNWQifQ.5Aic9Z6tQdSfC13zhLzatw';
   var map = new mapboxgl.Map({
@@ -111,7 +120,11 @@ window.addEventListener('load', () => {
         'line-join': 'round',
         'line-cap': 'round'
       },
-      'filter': ['has', 'bicycle'],
+      'filter': [
+        'all',
+        ['has', 'bicycle'],
+        ['==', ['get', 'highwayType'], 'path']
+      ],
       'paint': {
         'line-color': [
           'case',
@@ -130,27 +143,28 @@ window.addEventListener('load', () => {
       'type': 'line',
       'source': 'cycling-data',
       'layout': {},
-      'filter': ['has', 'cyclewayRight'],
+      'filter': [
+        'all',
+        ['has', 'cyclewayRight'],
+        ['!=', ['get', 'cyclewayRight'], 'no']
+      ],
       'paint': {
         'line-color': [
           'case',
           ['==', ['get', 'cyclewayRight'], 'track'],
-          '#2C9E30',
-          // ['all',
-          //   ['==', ['get', 'cyclewayRight'], 'lane'],
-          //   ['any',
-          //     ['==', ['get', 'cyclewayBufferValue'], 'yes'],
-          //     ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
-          //   ],
-          // ],
-          // '#8EC210',
+          roadwayPalette.cycleTrack,
+          ['all',
+            ['==', ['get', 'cyclewayRight'], 'lane'],
+            ['has', 'cyclewayRightBuffer' ],
+          ],
+          roadwayPalette.bufferedLane,
           ['==', ['get', 'cyclewayRight'], 'lane'],
-          '#FF8E15',
+          roadwayPalette.lane,
           ['==', ['get', 'cyclewayRight'], 'share_busway'],
-          '#FF8E15',
+          roadwayPalette.shareBusway,
           ['==', ['get', 'cyclewayRight'], 'shared_lane'],
-          '#FF8E15',
-          '#FF0D0D'
+          roadwayPalette.sharedLane,
+          roadwayPalette.none
         ],
         'line-width': [
           'interpolate',
@@ -165,14 +179,11 @@ window.addEventListener('load', () => {
           'case',
           ['==', ['get', 'cyclewayRight'], 'track'],
           ['literal', [1]],
-          // ['all',
-          //   ['==', ['get', 'cyclewayRight'], 'lane'],
-          //   ['any',
-          //     ['==', ['get', 'cyclewayBufferValue'], 'yes'],
-          //     ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
-          //   ],
-          // ],
-          // ['literal', [2, 2]],
+          ['all',
+            ['==', ['get', 'cyclewayRight'], 'lane'],
+            ['has', 'cyclewayRightBuffer' ],
+          ],
+          ['literal', [2, 2]],
           ['==', ['get', 'cyclewayRight'], 'lane'],
           ['literal', [2, 4]],
           ['==', ['get', 'cyclewayRight'], 'shared_lane'],
@@ -196,27 +207,28 @@ window.addEventListener('load', () => {
       'type': 'line',
       'source': 'cycling-data',
       'layout': {},
-      'filter': ['has', 'cyclewayLeft'],
+      'filter': [
+        'all',
+        ['has', 'cyclewayLeft'],
+        ['!=', ['get', 'cyclewayLeft'], 'no']
+      ],
       'paint': {
         'line-color': [
           'case',
           ['==', ['get', 'cyclewayLeft'], 'track'],
-          '#2C9E30',
-          // ['all',
-          //   ['==', ['get', 'cyclewayLeft'], 'lane'],
-          //   ['any',
-          //     ['==', ['get', 'cyclewayBufferValue'], 'yes'],
-          //     ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
-          //   ],
-          // ],
-          // '#8EC210',
+          roadwayPalette.cycleTrack,
+          ['all',
+            ['==', ['get', 'cyclewayLeft'], 'lane'],
+            ['has', 'cyclewayLeftBuffer' ],
+          ],
+          roadwayPalette.bufferedLane,
           ['==', ['get', 'cyclewayLeft'], 'lane'],
-          '#FF8E15',
+          roadwayPalette.lane,
           ['==', ['get', 'cyclewayLeft'], 'share_busway'],
-          '#FF8E15',
+          roadwayPalette.shareBusway,
           ['==', ['get', 'cyclewayLeft'], 'shared_lane'],
-          '#FF8E15',
-          '#FF0D0D'
+          roadwayPalette.sharedLane,
+          roadwayPalette.none
         ],
         'line-width': [
           'interpolate',
@@ -233,10 +245,7 @@ window.addEventListener('load', () => {
           ['literal', [1]],
           ['all',
             ['==', ['get', 'cyclewayLeft'], 'lane'],
-            // ['any',
-            //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
-            //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
-            // ],
+            ['has', 'cyclewayLeftBuffer' ],
           ],
           ['literal', [2, 2]],
           ['==', ['get', 'cyclewayLeft'], 'lane'],
