@@ -129,7 +129,26 @@ window.addEventListener('load', () => {
       'layout': {},
       'filter': ['has', 'cyclewayRight'],
       'paint': {
-        'line-color': '#2747c4',
+        'line-color': [
+          'case',
+          ['==', ['get', 'cyclewayRight'], 'track'],
+          '#2C9E30',
+          ['all',
+            ['==', ['get', 'cyclewayRight'], 'lane'],
+            // ['any',
+            //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
+            //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
+            // ],
+          ],
+          '#8EC210',
+          ['==', ['get', 'cyclewayRight'], 'lane'],
+          '#FAB733',
+          ['==', ['get', 'cyclewayRight'], 'share_busway'],
+          '#FF8E15',
+          ['==', ['get', 'cyclewayRight'], 'shared_lane'],
+          '#FF8E15',
+          '#FF0D0D'
+        ],
         'line-width': [
           'interpolate',
           ['linear'],
@@ -176,7 +195,26 @@ window.addEventListener('load', () => {
       'layout': {},
       'filter': ['has', 'cyclewayLeft'],
       'paint': {
-        'line-color': '#2747c4',
+        'line-color': [
+          'case',
+          ['==', ['get', 'cyclewayLeft'], 'track'],
+          '#2C9E30',
+          ['all',
+            ['==', ['get', 'cyclewayLeft'], 'lane'],
+            // ['any',
+            //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
+            //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
+            // ],
+          ],
+          '#8EC210',
+          ['==', ['get', 'cyclewayLeft'], 'lane'],
+          '#FAB733',
+          ['==', ['get', 'cyclewayLeft'], 'share_busway'],
+          '#FF8E15',
+          ['==', ['get', 'cyclewayLeft'], 'shared_lane'],
+          '#FF8E15',
+          '#FF0D0D'
+        ],
         'line-width': [
           'interpolate',
           ['linear'],
