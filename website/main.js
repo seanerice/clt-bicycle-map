@@ -50,7 +50,7 @@ window.addEventListener('load', () => {
   
     map.addSource('cycling-data', {
       type: 'geojson',
-      data: './export.geojson'
+      data: 'https://data.bikemap.seanerice.dev/export.geojson'
     });
         
     map.addLayer({
