@@ -25,7 +25,7 @@ def fetch_data():
 
     return data
 
-def write_data(data, path ,minify=False):
+def write_data(data, path, minify=False):
     indent = 4
     separators = None
     if minify == True:
@@ -106,6 +106,8 @@ def transform_road_feature(feature):
         properties.get("cycleway")
     )
 
+    bicycle_facility_type = "none"
+
     new_feature = {
         **feature,
         "properties": {
@@ -176,4 +178,4 @@ def transform_data(data):
 
 geojson_data = json2geojson(fetch_data(), filter_used_refs=True)
 transformed_data = transform_data(geojson_data)
-write_data(transformed_data, "./website/test.geo.json", minify=True)
+write_data(transformed_data, "../data/export.geojson", minify=True)
