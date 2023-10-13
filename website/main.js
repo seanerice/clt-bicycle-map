@@ -6,12 +6,42 @@ window.addEventListener('load', () => {
     center: [-80.8421784, 35.240988],
     zoom: 10
   });
+
+  const toggleLayer = (layerId, visible) => {
+    if (visible)
+      map.setLayoutProperty(layerId, 'visibility', 'visible');
+    else
+      map.setLayoutProperty(layerId, 'visibility', 'none');
+  };
+
+  const layerMenu = document.getElementById('menu');
+  const layerInputs = layerMenu.getElementsByTagName('input');
+  for (const layerInput of layerInputs) {
+    layerInput.addEventListener('click', (event) => {
+      const elementId = event.target.id;
+      switch(elementId) {
+        case 'routes':
+          toggleLayer('cycling-route-lines', event.target.checked);
+          toggleLayer('cycling-route-symbols', event.target.checked);
+          break;
+        case 'cycle-lanes':
+          toggleLayer('cycling-lanes-right', event.target.checked);
+          toggleLayer('cycling-lanes-left', event.target.checked);
+          break;
+        case 'cycle-paths':
+          toggleLayer('cycling-paths', event.target.checked);
+          break;
+        default:
+          break;
+      }
+    });
+  }
   
   map.on('load', () => {
   
     map.addSource('cycling-data', {
       type: 'geojson',
-      data: 'https://data.bikemap.seanerice.dev/export.geojson'
+      data: './export.geojson'
     });
         
     map.addLayer({
@@ -89,38 +119,11 @@ window.addEventListener('load', () => {
           '#0DDD37',
           ['==', ['get', 'bicycle'], 'designated'],
           '#2747c4',
-          '#2747c4'
+          'rgba(0, 0, 0, 0)'
         ],
         'line-width': 1.5,
       }
     });
-  
-    // map.addLayer({
-    //   'id': 'cycling-footpaths',
-    //   'type': 'line',
-    //   'source': 'cycling-data',
-    //   'layout': {
-    //     'line-join': 'round',
-    //     'line-cap': 'round'
-    //   },
-    //   'filter': [
-    //     'any',
-    //     ['==', ['get', 'highway'], 'path'],
-    //     [
-    //       'all',
-    //       ['==', ['get', 'highway'], 'footway'],
-    //                 ['any',
-    //                     ['==', ['get', 'bicycle'], 'yes'],
-    //                     ['==', ['get', 'bicycle'], 'designated']
-    //                 ]
-    //     ],
-  
-    //   ],
-    //   'paint': {
-    //     'line-color': '#027d62',
-    //     'line-width': 1.5,
-    //   }
-    // });
   
     map.addLayer({
       'id': 'cycling-lanes-right',
@@ -133,16 +136,16 @@ window.addEventListener('load', () => {
           'case',
           ['==', ['get', 'cyclewayRight'], 'track'],
           '#2C9E30',
-          ['all',
-            ['==', ['get', 'cyclewayRight'], 'lane'],
-            // ['any',
-            //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
-            //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
-            // ],
-          ],
-          '#8EC210',
+          // ['all',
+          //   ['==', ['get', 'cyclewayRight'], 'lane'],
+          //   ['any',
+          //     ['==', ['get', 'cyclewayBufferValue'], 'yes'],
+          //     ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
+          //   ],
+          // ],
+          // '#8EC210',
           ['==', ['get', 'cyclewayRight'], 'lane'],
-          '#FAB733',
+          '#FF8E15',
           ['==', ['get', 'cyclewayRight'], 'share_busway'],
           '#FF8E15',
           ['==', ['get', 'cyclewayRight'], 'shared_lane'],
@@ -162,14 +165,14 @@ window.addEventListener('load', () => {
           'case',
           ['==', ['get', 'cyclewayRight'], 'track'],
           ['literal', [1]],
-          ['all',
-            ['==', ['get', 'cyclewayRight'], 'lane'],
-            // ['any',
-            //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
-            //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
-            // ],
-          ],
-          ['literal', [2, 2]],
+          // ['all',
+          //   ['==', ['get', 'cyclewayRight'], 'lane'],
+          //   ['any',
+          //     ['==', ['get', 'cyclewayBufferValue'], 'yes'],
+          //     ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
+          //   ],
+          // ],
+          // ['literal', [2, 2]],
           ['==', ['get', 'cyclewayRight'], 'lane'],
           ['literal', [2, 4]],
           ['==', ['get', 'cyclewayRight'], 'shared_lane'],
@@ -199,16 +202,16 @@ window.addEventListener('load', () => {
           'case',
           ['==', ['get', 'cyclewayLeft'], 'track'],
           '#2C9E30',
-          ['all',
-            ['==', ['get', 'cyclewayLeft'], 'lane'],
-            // ['any',
-            //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
-            //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
-            // ],
-          ],
-          '#8EC210',
+          // ['all',
+          //   ['==', ['get', 'cyclewayLeft'], 'lane'],
+          //   ['any',
+          //     ['==', ['get', 'cyclewayBufferValue'], 'yes'],
+          //     ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
+          //   ],
+          // ],
+          // '#8EC210',
           ['==', ['get', 'cyclewayLeft'], 'lane'],
-          '#FAB733',
+          '#FF8E15',
           ['==', ['get', 'cyclewayLeft'], 'share_busway'],
           '#FF8E15',
           ['==', ['get', 'cyclewayLeft'], 'shared_lane'],
