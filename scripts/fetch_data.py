@@ -11,6 +11,7 @@ def fetch_data():
         (
             // query part for "cycleway:*=*"
             way[~"^cycleway:.*$"~"."](area.searchArea);
+            way["cycleway"~"."](area.searchArea);
             way["highway"="cycleway"](area.searchArea);
             way["bicycle"="designated"](area.searchArea);
             way["bicycle"="yes"](area.searchArea);
