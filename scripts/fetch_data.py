@@ -1,6 +1,6 @@
 import json
 import requests
-import copy
+import re
 from osm2geojson import json2geojson 
 
 def fetch_data():
@@ -25,7 +25,7 @@ def fetch_data():
 
     return data
 
-def write_data(data, path ,minify=False):
+def write_data(data, path, minify=False):
     indent = 4
     separators = None
     if minify == True:
@@ -85,11 +85,27 @@ def transform_path_feature(feature):
         "properties": {
             **feature["properties"],
             **feature["properties"]["tags"],
-            "bicycle": bicycle
+            "bicycle": bicycle,
+            "highwayType": "path"
         }
     }
 
     return new_feature
+
+osm_unit_regex = re.compile('^\s*(?P<n>[-+]?[0-9]?.?[0-9]*)\s*(?P<u>[a-zA-Z\'\"]*)$')
+
+def hasCyclewayBufferValue(value):
+    if value is None or value == "no" or value == "0":
+        return False
+    if value == "yes":
+        return True
+    
+    (n, p) = osm_unit_regex.match(value).groups()
+    if float(n) > 0:
+        return True
+    
+    return False
+    
 
 # https://wiki.openstreetmap.org/wiki/Key:highway#Roads
 def transform_road_feature(feature):
@@ -106,6 +122,18 @@ def transform_road_feature(feature):
         properties.get("cycleway")
     )
 
+    cycleway_right_buffer_value = (
+        properties.get("cycleway:right:buffer") or
+        properties.get("cycleway:both:buffer") or
+        properties.get("cycleway:buffer")
+    )
+
+    cycleway_left_buffer_value = (
+        properties.get("cycleway:left:buffer") or
+        properties.get("cycleway:both:buffer") or
+        properties.get("cycleway:buffer")
+    )
+
     new_feature = {
         **feature,
         "properties": {
@@ -120,6 +148,10 @@ def transform_road_feature(feature):
         del new_feature["properties"]["cyclewayLeft"]
     if not cycleway_right_value:
         del new_feature["properties"]["cyclewayRight"]
+    if hasCyclewayBufferValue(cycleway_left_buffer_value):
+        new_feature["properties"]["cyclewayLeftBuffer"] = "yes"
+    if hasCyclewayBufferValue(cycleway_right_buffer_value):
+        new_feature["properties"]["cyclewayRightBuffer"] = "yes"
 
     return new_feature
 
@@ -176,4 +208,4 @@ def transform_data(data):
 
 geojson_data = json2geojson(fetch_data(), filter_used_refs=True)
 transformed_data = transform_data(geojson_data)
-write_data(transformed_data, "./website/test.geo.json", minify=True)
+write_data(transformed_data, "../data/export.geojson", minify=True)

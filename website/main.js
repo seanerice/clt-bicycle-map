@@ -1,3 +1,12 @@
+const roadwayPalette = {
+  cycleTrack: '#2C9E30',
+  bufferedLane: '#8EC210',
+  lane: '#FF8E15',
+  shareBusway: '#FF8E15',
+  sharedLane: '#FF8E15',
+  none: '#FF0D0D'
+};
+
 window.addEventListener('load', () => {
   mapboxgl.accessToken = 'pk.eyJ1Ijoic2VhbmVyaWNlIiwiYSI6ImNsZ28zZjMwdjA4cHozam55NXg3ejFxNWQifQ.5Aic9Z6tQdSfC13zhLzatw';
   var map = new mapboxgl.Map({
@@ -6,12 +15,42 @@ window.addEventListener('load', () => {
     center: [-80.8421784, 35.240988],
     zoom: 10
   });
+
+  const toggleLayer = (layerId, visible) => {
+    if (visible)
+      map.setLayoutProperty(layerId, 'visibility', 'visible');
+    else
+      map.setLayoutProperty(layerId, 'visibility', 'none');
+  };
+
+  const layerMenu = document.getElementById('menu');
+  const layerInputs = layerMenu.getElementsByTagName('input');
+  for (const layerInput of layerInputs) {
+    layerInput.addEventListener('click', (event) => {
+      const elementId = event.target.id;
+      switch(elementId) {
+        case 'routes':
+          toggleLayer('cycling-route-lines', event.target.checked);
+          toggleLayer('cycling-route-symbols', event.target.checked);
+          break;
+        case 'cycle-lanes':
+          toggleLayer('cycling-lanes-right', event.target.checked);
+          toggleLayer('cycling-lanes-left', event.target.checked);
+          break;
+        case 'cycle-paths':
+          toggleLayer('cycling-paths', event.target.checked);
+          break;
+        default:
+          break;
+      }
+    });
+  }
   
   map.on('load', () => {
   
     map.addSource('cycling-data', {
       type: 'geojson',
-      data: 'https://data.bikemap.seanerice.dev/export.geojson'
+      data: './export.geojson'
     });
         
     map.addLayer({
@@ -81,7 +120,11 @@ window.addEventListener('load', () => {
         'line-join': 'round',
         'line-cap': 'round'
       },
-      'filter': ['has', 'bicycle'],
+      'filter': [
+        'all',
+        ['has', 'bicycle'],
+        ['==', ['get', 'highwayType'], 'path']
+      ],
       'paint': {
         'line-color': [
           'case',
@@ -89,47 +132,40 @@ window.addEventListener('load', () => {
           '#0DDD37',
           ['==', ['get', 'bicycle'], 'designated'],
           '#2747c4',
-          '#2747c4'
+          'rgba(0, 0, 0, 0)'
         ],
         'line-width': 1.5,
       }
     });
-  
-    // map.addLayer({
-    //   'id': 'cycling-footpaths',
-    //   'type': 'line',
-    //   'source': 'cycling-data',
-    //   'layout': {
-    //     'line-join': 'round',
-    //     'line-cap': 'round'
-    //   },
-    //   'filter': [
-    //     'any',
-    //     ['==', ['get', 'highway'], 'path'],
-    //     [
-    //       'all',
-    //       ['==', ['get', 'highway'], 'footway'],
-    //                 ['any',
-    //                     ['==', ['get', 'bicycle'], 'yes'],
-    //                     ['==', ['get', 'bicycle'], 'designated']
-    //                 ]
-    //     ],
-  
-    //   ],
-    //   'paint': {
-    //     'line-color': '#027d62',
-    //     'line-width': 1.5,
-    //   }
-    // });
   
     map.addLayer({
       'id': 'cycling-lanes-right',
       'type': 'line',
       'source': 'cycling-data',
       'layout': {},
-      'filter': ['has', 'cyclewayRight'],
+      'filter': [
+        'all',
+        ['has', 'cyclewayRight'],
+        ['!=', ['get', 'cyclewayRight'], 'no']
+      ],
       'paint': {
-        'line-color': '#2747c4',
+        'line-color': [
+          'case',
+          ['==', ['get', 'cyclewayRight'], 'track'],
+          roadwayPalette.cycleTrack,
+          ['all',
+            ['==', ['get', 'cyclewayRight'], 'lane'],
+            ['has', 'cyclewayRightBuffer' ],
+          ],
+          roadwayPalette.bufferedLane,
+          ['==', ['get', 'cyclewayRight'], 'lane'],
+          roadwayPalette.lane,
+          ['==', ['get', 'cyclewayRight'], 'share_busway'],
+          roadwayPalette.shareBusway,
+          ['==', ['get', 'cyclewayRight'], 'shared_lane'],
+          roadwayPalette.sharedLane,
+          roadwayPalette.none
+        ],
         'line-width': [
           'interpolate',
           ['linear'],
@@ -145,10 +181,7 @@ window.addEventListener('load', () => {
           ['literal', [1]],
           ['all',
             ['==', ['get', 'cyclewayRight'], 'lane'],
-            // ['any',
-            //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
-            //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
-            // ],
+            ['has', 'cyclewayRightBuffer' ],
           ],
           ['literal', [2, 2]],
           ['==', ['get', 'cyclewayRight'], 'lane'],
@@ -174,9 +207,29 @@ window.addEventListener('load', () => {
       'type': 'line',
       'source': 'cycling-data',
       'layout': {},
-      'filter': ['has', 'cyclewayLeft'],
+      'filter': [
+        'all',
+        ['has', 'cyclewayLeft'],
+        ['!=', ['get', 'cyclewayLeft'], 'no']
+      ],
       'paint': {
-        'line-color': '#2747c4',
+        'line-color': [
+          'case',
+          ['==', ['get', 'cyclewayLeft'], 'track'],
+          roadwayPalette.cycleTrack,
+          ['all',
+            ['==', ['get', 'cyclewayLeft'], 'lane'],
+            ['has', 'cyclewayLeftBuffer' ],
+          ],
+          roadwayPalette.bufferedLane,
+          ['==', ['get', 'cyclewayLeft'], 'lane'],
+          roadwayPalette.lane,
+          ['==', ['get', 'cyclewayLeft'], 'share_busway'],
+          roadwayPalette.shareBusway,
+          ['==', ['get', 'cyclewayLeft'], 'shared_lane'],
+          roadwayPalette.sharedLane,
+          roadwayPalette.none
+        ],
         'line-width': [
           'interpolate',
           ['linear'],
@@ -192,10 +245,7 @@ window.addEventListener('load', () => {
           ['literal', [1]],
           ['all',
             ['==', ['get', 'cyclewayLeft'], 'lane'],
-            // ['any',
-            //   ['==', ['get', 'cyclewayBufferValue'], 'yes'],
-            //   ['>', ['number', ['get', 'cyclewayBufferValue'], 0], 0]
-            // ],
+            ['has', 'cyclewayLeftBuffer' ],
           ],
           ['literal', [2, 2]],
           ['==', ['get', 'cyclewayLeft'], 'lane'],

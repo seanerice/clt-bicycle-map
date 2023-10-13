@@ -1,0 +1,14 @@
+{
+  "name": "website",
+  "version": "0.0.1",
+  "description": "Map of Charlotte",
+  "main": "main.js",
+  "scripts": {
+    "start": "http-server ./"
+  },
+  "author": "Sean Rice",
+  "license": "ISC",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
