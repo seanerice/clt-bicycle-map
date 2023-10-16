@@ -22,13 +22,14 @@ export class BikeMapApp extends LitElement {
     }
 
     firstUpdated() {
+        mapboxgl.accessToken = 'pk.eyJ1Ijoic2VhbmVyaWNlIiwiYSI6ImNsZ28zZjMwdjA4cHozam55NXg3ejFxNWQifQ.5Aic9Z6tQdSfC13zhLzatw';
         const map = new mapboxgl.Map({
-            accessToken: 'pk.eyJ1Ijoic2VhbmVyaWNlIiwiYSI6ImNsZ28zZjMwdjA4cHozam55NXg3ejFxNWQifQ.5Aic9Z6tQdSfC13zhLzatw',
             container: this.shadowRoot.getElementById('map'),
             style: 'mapbox://styles/seanerice/clnsc85cb00cf01p7d5jv2ham',
             center: [-80.8421784, 35.240988],
             zoom: 10
         });
+
         map.on('load', () => {
             this._mapProvider.setValue(map);
 
@@ -36,7 +37,7 @@ export class BikeMapApp extends LitElement {
                 type: 'geojson',
                 data: 'https://data.bikemap.seanerice.dev/export.geojson'
             });
-                
+
             map.addLayer({
                 'id': 'cycling-route-lines',
                 'type': 'line',
@@ -255,9 +256,9 @@ export class BikeMapApp extends LitElement {
     static styles = [
         mapboxglStyles,
         css`
-            // :host {
-            //     display: block;
-            // }
+            :host {
+                display: block;
+            }
         `
     ];
 
