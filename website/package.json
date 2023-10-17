@@ -4,11 +4,22 @@
   "description": "Map of Charlotte",
   "main": "main.js",
   "scripts": {
-    "start": "http-server ./"
+    "start": "http-server ./",
+    "start:prod": "http-server ./dist/",
+    "build": "webpack"
   },
   "author": "Sean Rice",
   "license": "ISC",
   "devDependencies": {
-    "http-server": "^14.1.1"
+    "html-loader": "^4.2.0",
+    "html-webpack-plugin": "^5.5.3",
+    "http-server": "^14.1.1",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@lit/context": "^1.0.0",
+    "lit": "^3.0.0",
+    "mapbox-gl": "^2.15.0"
   }
 }
