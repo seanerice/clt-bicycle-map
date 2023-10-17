@@ -1,6 +1,7 @@
 import { ContextConsumer } from "@lit/context";
 import { LitElement, html, css } from "lit";
 import { mapContext } from "./mapContext";
+import './ser-checkbox.js';
 
 export class LayerWidget extends LitElement {
     _mapConsumer = new ContextConsumer(
@@ -10,27 +11,18 @@ export class LayerWidget extends LitElement {
             subscribe: true
         });
     
-    _routeFilters = this._calculateRouteFilters();
+    connectedCallback() {
+        super.connectedCallback();
+        this.addEventListener('updated', this._handleUpdated)
+    }
 
-    constructor() {
-        super();
-
-        // Filters state
-        this.greenwayRoutesEnabled = true;
-        this.signedRoutesEnabled = true;
-        this.suggestedRoutesEnabled = true;
-        this.allowedPathsEnabled = true;
-        this.designatedPathsEnabled = true;
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        super.addEventListener('updated', this._handleUpdated);
     }
  
     static get properties() {
-        return {
-            greenwayRoutesEnabled: { type: Boolean },
-            signedRoutesEnabled: { type: Boolean },
-            suggestedRoutesEnabled: { type: Boolean },
-            allowedPathsEnabled: { type: Boolean },
-            designatedPathsEnabled: { type: Boolean }
-        };
+        return {};
     }
 
     _calculateRouteFilters(options = {}) {
@@ -84,12 +76,60 @@ export class LayerWidget extends LitElement {
         return filters;
     }
 
+    _toggleLayer = (layerId, visible) => {
+        if (visible)
+            this._mapConsumer.value.setLayoutProperty(layerId, 'visibility', 'visible');
+        else
+            this._mapConsumer.value.setLayoutProperty(layerId, 'visibility', 'none');
+    };
+
+    _handleUpdated(event) {
+        const { checked, indeterminate, id: elementId } = event.detail;
+
+        switch(elementId) {
+            case 'routes':
+                this._toggleLayer('cycling-route-lines', checked || indeterminate);
+                this._toggleLayer('cycling-route-symbols', checked || indeterminate);
+                break;
+            case 'greenway-routes':
+            case 'signed-routes':
+            case 'suggested-routes':
+                const greenwayRoutesElement = this.shadowRoot.getElementById('greenway-routes');
+                const signedRoutesElement = this.shadowRoot.getElementById('signed-routes');
+                const suggestedRoutesElement = this.shadowRoot.getElementById('suggested-routes');
+                const routeFilters = this._calculateRouteFilters({
+                    greenwayRoutes: greenwayRoutesElement.checked,
+                    signedRoutes: signedRoutesElement.checked,
+                    suggestedRoutes: suggestedRoutesElement.checked
+                })
+                this._mapConsumer.value.setFilter('cycling-route-lines', routeFilters);
+                this._mapConsumer.value.setFilter('cycling-route-symbols', routeFilters);
+                break;
+            case 'bike-lanes':
+                this._toggleLayer('cycling-lanes-right', checked || indeterminate);
+                this._toggleLayer('cycling-lanes-left', checked || indeterminate);
+                break;
+            case 'cycle-paths':
+                this._toggleLayer('cycling-paths', checked || indeterminate);
+                break;
+            case 'allowed-cycle-paths':
+            case 'designated-cycle-paths':
+                const allowedCyclePathsElement = this.shadowRoot.getElementById('allowed-cycle-paths');
+                const designatedCyclePathsElement = this.shadowRoot.getElementById('designated-cycle-paths');
+                const cyclePathFilters = this._calculatePathFilters({
+                    allowed: allowedCyclePathsElement.checked,
+                    designated: designatedCyclePathsElement.checked
+                });
+                this._mapConsumer.value.setFilter('cycling-paths', cyclePathFilters);
+                break;
+            default:
+                break;
+        }
+    }
+
     static styles = css`
         :host {
             display: block;
-        }
-
-        #menu {
             position: absolute;
             background: #efefef;
             padding: 10px;
@@ -145,153 +185,19 @@ export class LayerWidget extends LitElement {
 
     render() {
         return html`
-            <div
-                id='menu'
-                @click="${this._handleClick}">
-                <input
-                    type="checkbox"
-                    id="routes"
-                    name="routes"
-                    checked
-                >
-                <label for="routes">Routes</label><br>
-                <ul>
-                    <li>
-                        <span class="greenway-route-line"></span>
-                        <input
-                            type="checkbox"
-                            id="greenway-routes"
-                            name="greenway-routes"
-                            .checked=${this.greenwayRoutesEnabled}
-                        >
-                        <label for="routes">Greenway Routes</label>
-                    </li>
-                    <li>
-                        <span class="signed-route-line"></span>
-                        <input
-                            type="checkbox"
-                            id="signed-routes"
-                            name="signed-routes"
-                            .checked=${this.signedRoutesEnabled}
-                        >
-                        <label for="routes">Signed Routes</label>
-                    </li>
-                    <li>
-                        <span class="suggested-route-line"></span>
-                        <input
-                            type="checkbox"
-                            id="suggested-routes"
-                            name="suggested-routes"
-                            .checked=${this.suggestedRoutesEnabled}
-                        >
-                        <label for="routes">Suggested Routes</label>
-                    </li>
-                </ul>
-
-                <input
-                    type="checkbox"
-                    id="cycle-lanes"
-                    name="cycle-lanes"
-                    checked
-                >
-                <label for="routes">Cycle Lanes</label><br>
-
-                <input
-                    type="checkbox"
-                    id="cycle-paths"
-                    name="cycle-paths"
-                    checked
-                >
-                <label for="routes">Cycle Paths</label><br>
-                <ul>
-                    <li>
-                        <span class="allowed-path-line"></span>
-                        <input
-                            type="checkbox"
-                            id="allowed-paths"
-                            name="allowed-paths"
-                            .checked=${this.allowedPathsEnabled}
-                        >
-                        <label for="routes">Allowed Cycle Paths</label>
-                    </li>
-                    <li>
-                        <span class="designated-path-line"></span>
-                        <input
-                            type="checkbox"
-                            id="designated-paths"
-                            name="designated-paths"
-                            .checked=${this.designatedPathsEnabled}
-                        >
-                        <label for="routes">Designated Cycle Paths</label>
-                    </li>
-                </ul>
-            </div>
+            <ser-checkbox>
+                <ser-checkbox id="routes" label="Routes">
+                    <ser-checkbox id="greenway-routes" label="Greenway Routes"></ser-checkbox>
+                    <ser-checkbox id="signed-routes" label="Signed Routes"></ser-checkbox>
+                    <ser-checkbox id="suggested-routes" label="Suggested Routes"></ser-checkbox>
+                </ser-checkbox>
+                <ser-checkbox id="bike-lanes" label="Bike Lanes"></ser-checkbox>
+                <ser-checkbox id="cycle-paths" label="Cycle Paths">
+                    <ser-checkbox id="allowed-cycle-paths" label="Allowed"></ser-checkbox>
+                    <ser-checkbox id="designated-cycle-paths" label="Designated"></ser-checkbox>
+                </ser-checkbox>
+            </ser-checkbox>
         `;
-    }
-
-    _toggleLayer = (layerId, visible) => {
-        if (visible)
-            this._mapConsumer.value.setLayoutProperty(layerId, 'visibility', 'visible');
-        else
-            this._mapConsumer.value.setLayoutProperty(layerId, 'visibility', 'none');
-    };
-
-    _calculateToggleInputState(input, childInputs) {
-
-    }
-
-    _handleClick(event) {
-        const elementId = event.target.id;
-        const checked = event.target.checked;
-
-        switch(elementId) {
-            case 'routes':
-                this._toggleLayer('cycling-route-lines', event.target.checked);
-                this._toggleLayer('cycling-route-symbols', event.target.checked);
-                this.greenwayRoutesEnabled = checked;
-                this.signedRoutesEnabled = checked;
-                this.suggestedRoutesEnabled = checked;
-                break;
-            case 'greenway-routes':
-                this.greenwayRoutesEnabled = checked;
-                break;
-            case 'signed-routes':
-                this.signedRoutesEnabled = checked;
-                break;
-            case 'suggested-routes':
-                this.suggestedRoutesEnabled = checked;
-                break;
-            case 'cycle-lanes':
-                this._toggleLayer('cycling-lanes-right', event.target.checked);
-                this._toggleLayer('cycling-lanes-left', event.target.checked);
-                break;
-            case 'cycle-paths':
-                this._toggleLayer('cycling-paths', event.target.checked);
-                this.allowedPathsEnabled = checked;
-                this.designatedPathsEnabled = checked;
-                break;
-            case 'allowed-paths':
-                this.allowedPathsEnabled = checked;
-                break;
-            case 'designated-paths':
-                this.designatedPathsEnabled = checked;
-                break;
-            default:
-                break;
-        }
-
-        this._routeFilters = this._calculateRouteFilters({
-            greenwayRoutes: this.greenwayRoutesEnabled,
-            signedRoutes: this.signedRoutesEnabled,
-            suggestedRoutes: this.suggestedRoutesEnabled
-        });
-        this._cyclePaths = this._calculatePathFilters({
-            allowed: this.allowedPathsEnabled,
-            designated: this.designatedPathsEnabled
-        });
-        this._mapConsumer.value.setFilter('cycling-route-lines', this._routeFilters);
-        this._mapConsumer.value.setFilter('cycling-route-symbols', this._routeFilters);
-        this._mapConsumer.value.setFilter('cycling-paths', this._cyclePaths);
     }
 }
 
