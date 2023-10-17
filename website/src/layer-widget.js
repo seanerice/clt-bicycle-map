@@ -1,5 +1,5 @@
 import { ContextConsumer } from "@lit/context";
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { mapContext } from "./mapContext";
 import './ser-checkbox.js';
 
@@ -184,17 +184,29 @@ export class LayerWidget extends LitElement {
     `;
 
     render() {
+        if (!this._mapConsumer.value) {
+            return nothing;
+        }
+
         return html`
-            <ser-checkbox>
-                <ser-checkbox id="routes" label="Routes">
-                    <ser-checkbox id="greenway-routes" label="Greenway Routes"></ser-checkbox>
-                    <ser-checkbox id="signed-routes" label="Signed Routes"></ser-checkbox>
-                    <ser-checkbox id="suggested-routes" label="Suggested Routes"></ser-checkbox>
+            <ser-checkbox id="routes" label="Routes" .checked=${true}>
+                <ser-checkbox id="greenway-routes" .checked=${true}>
+                    <label slot="label"><span class="greenway-route-line"></span>Greenway Routes</label>
                 </ser-checkbox>
-                <ser-checkbox id="bike-lanes" label="Bike Lanes"></ser-checkbox>
-                <ser-checkbox id="cycle-paths" label="Cycle Paths">
-                    <ser-checkbox id="allowed-cycle-paths" label="Allowed"></ser-checkbox>
-                    <ser-checkbox id="designated-cycle-paths" label="Designated"></ser-checkbox>
+                <ser-checkbox id="signed-routes" .checked=${true}>
+                    <label slot="label"><span class="signed-route-line"></span>Signed Routes</label>
+                </ser-checkbox>
+                <ser-checkbox id="suggested-routes" .checked=${true}>
+                    <label slot="label"><span class="suggested-route-line"></span>Suggested Routes</label>
+                </ser-checkbox>
+            </ser-checkbox>
+            <ser-checkbox id="bike-lanes" label="Bike Lanes" .checked=${true}></ser-checkbox>
+            <ser-checkbox id="cycle-paths" label="Cycle Paths" .checked=${true}>
+                <ser-checkbox id="allowed-cycle-paths" .checked=${true}>
+                    <label slot="label"><span class="allowed-path-line"></span>Allowed</label>
+                </ser-checkbox>
+                <ser-checkbox id="designated-cycle-paths" .checked=${true}>
+                    <label slot="label"><span class="designated-path-line"></span>Designated</label>
                 </ser-checkbox>
             </ser-checkbox>
         `;
