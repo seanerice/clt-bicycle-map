@@ -75,12 +75,11 @@ export class SerCheckbox extends LitElement {
         this.indeterminate = indeterminate;
 
         this._propagateDownwards(this.checked);
-        this._dispatchUpdatedEvent({ checked: this.checked, intederminate: this.indeterminate });
-
         this._dispatchInternalUpdatedEvent({
             checked,
             indeterminate
         });
+        this._dispatchUpdatedEvent({ checked: this.checked, intederminate: this.indeterminate });
     }
 
     static styles = [

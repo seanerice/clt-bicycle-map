@@ -86,24 +86,39 @@ export class LayerWidget extends LitElement {
     _handleUpdated(event) {
         const { checked, indeterminate, id: elementId } = event.detail;
 
+        const setRouteFilters = () => {
+            const greenwayRoutesElement = this.shadowRoot.getElementById('greenway-routes');
+            const signedRoutesElement = this.shadowRoot.getElementById('signed-routes');
+            const suggestedRoutesElement = this.shadowRoot.getElementById('suggested-routes');
+            const routeFilters = this._calculateRouteFilters({
+                greenwayRoutes: greenwayRoutesElement.checked,
+                signedRoutes: signedRoutesElement.checked,
+                suggestedRoutes: suggestedRoutesElement.checked
+            })
+            this._mapConsumer.value.setFilter('cycling-route-lines', routeFilters);
+            this._mapConsumer.value.setFilter('cycling-route-symbols', routeFilters);
+        }
+
+        const setCyclePathFilters = () => {
+            const allowedCyclePathsElement = this.shadowRoot.getElementById('allowed-cycle-paths');
+            const designatedCyclePathsElement = this.shadowRoot.getElementById('designated-cycle-paths');
+            const cyclePathFilters = this._calculatePathFilters({
+                allowed: allowedCyclePathsElement.checked,
+                designated: designatedCyclePathsElement.checked
+            });
+            this._mapConsumer.value.setFilter('cycling-paths', cyclePathFilters);
+        }
+
         switch(elementId) {
             case 'routes':
                 this._toggleLayer('cycling-route-lines', checked || indeterminate);
                 this._toggleLayer('cycling-route-symbols', checked || indeterminate);
+                setRouteFilters();
                 break;
             case 'greenway-routes':
             case 'signed-routes':
             case 'suggested-routes':
-                const greenwayRoutesElement = this.shadowRoot.getElementById('greenway-routes');
-                const signedRoutesElement = this.shadowRoot.getElementById('signed-routes');
-                const suggestedRoutesElement = this.shadowRoot.getElementById('suggested-routes');
-                const routeFilters = this._calculateRouteFilters({
-                    greenwayRoutes: greenwayRoutesElement.checked,
-                    signedRoutes: signedRoutesElement.checked,
-                    suggestedRoutes: suggestedRoutesElement.checked
-                })
-                this._mapConsumer.value.setFilter('cycling-route-lines', routeFilters);
-                this._mapConsumer.value.setFilter('cycling-route-symbols', routeFilters);
+                setRouteFilters();
                 break;
             case 'bike-lanes':
                 this._toggleLayer('cycling-lanes-right', checked || indeterminate);
@@ -111,16 +126,11 @@ export class LayerWidget extends LitElement {
                 break;
             case 'cycle-paths':
                 this._toggleLayer('cycling-paths', checked || indeterminate);
+                setCyclePathFilters();
                 break;
             case 'allowed-cycle-paths':
             case 'designated-cycle-paths':
-                const allowedCyclePathsElement = this.shadowRoot.getElementById('allowed-cycle-paths');
-                const designatedCyclePathsElement = this.shadowRoot.getElementById('designated-cycle-paths');
-                const cyclePathFilters = this._calculatePathFilters({
-                    allowed: allowedCyclePathsElement.checked,
-                    designated: designatedCyclePathsElement.checked
-                });
-                this._mapConsumer.value.setFilter('cycling-paths', cyclePathFilters);
+                setCyclePathFilters();
                 break;
             default:
                 break;
