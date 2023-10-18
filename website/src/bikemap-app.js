@@ -4,6 +4,7 @@ import { mapContext } from "./mapContext";
 import mapboxgl from "mapbox-gl";
 import './layer-widget.js';
 import mapboxglStyles from './mapbox-gl.css.js';
+import './mapbox-navigation.js';
 
 const roadwayPalette = {
     cycleTrack: '#2C9E30',
@@ -265,6 +266,7 @@ export class BikeMapApp extends LitElement {
     render() {
         return html`
             <layer-widget></layer-widget>
+            <mapbox-navigation></mapbox-navigation>
             <div id='map' style='width: 100%; height: 97vh;'></div>
         `;
     }
