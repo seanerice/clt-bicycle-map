@@ -9,7 +9,8 @@ export class LayerWidget extends LitElement {
         {
             context: mapContext,
             subscribe: true
-        });
+        }
+    );
     
     connectedCallback() {
         super.connectedCallback();
@@ -141,6 +142,7 @@ export class LayerWidget extends LitElement {
         :host {
             display: block;
             position: absolute;
+            right: 0;
             background: #efefef;
             padding: 10px;
             font-family: 'Open Sans', sans-serif;
