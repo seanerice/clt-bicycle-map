@@ -5,15 +5,7 @@ import mapboxgl from "mapbox-gl";
 import './layer-widget.js';
 import mapboxglStyles from './mapbox-gl.css.js';
 import './mapbox-navigation.js';
-
-const roadwayPalette = {
-    cycleTrack: '#2C9E30',
-    bufferedLane: '#8EC210',
-    lane: '#FF8E15',
-    shareBusway: '#FF8E15',
-    sharedLane: '#FF8E15',
-    none: '#FF0D0D'
-};
+import { bicycleFacilityRatingColor, roadwayPalette } from './colors.js';
 
 export class BikeMapApp extends LitElement {
     _mapProvider = new ContextProvider(this, { context: mapContext });
@@ -79,7 +71,7 @@ export class BikeMapApp extends LitElement {
                     'line-opacity': 0.6
                 }
             });
-        
+
             map.addLayer({
                 'id': 'cycling-route-symbols',
                 'type': 'symbol',
@@ -97,7 +89,7 @@ export class BikeMapApp extends LitElement {
                 'filter': ['==', 'route', 'bicycle'],
                 'paint': {}
             });
-        
+
             map.addLayer({
                 'id': 'cycling-paths',
                 'type': 'line',
@@ -113,17 +105,17 @@ export class BikeMapApp extends LitElement {
                 ],
                 'paint': {
                     'line-color': [
-                    'case',
-                    ['==', ['get', 'bicycle'], 'yes'],
-                    '#0DDD37',
-                    ['==', ['get', 'bicycle'], 'designated'],
-                    '#2747c4',
-                    'rgba(0, 0, 0, 0)'
+                        'case',
+                        ['==', ['get', 'bicycle'], 'yes'],
+                        bicycleFacilityRatingColor.good,
+                        ['==', ['get', 'bicycle'], 'designated'],
+                        bicycleFacilityRatingColor.excellent,
+                        'rgba(0, 0, 0, 0)'
                     ],
                     'line-width': 1.5,
                 }
             });
-        
+
             map.addLayer({
                 'id': 'cycling-lanes-right',
                 'type': 'line',
@@ -141,7 +133,7 @@ export class BikeMapApp extends LitElement {
                         roadwayPalette.cycleTrack,
                         ['all',
                             ['==', ['get', 'cyclewayRight'], 'lane'],
-                            ['has', 'cyclewayRightBuffer' ],
+                            ['has', 'cyclewayRightBuffer'],
                         ],
                         roadwayPalette.bufferedLane,
                         ['==', ['get', 'cyclewayRight'], 'lane'],
@@ -150,6 +142,8 @@ export class BikeMapApp extends LitElement {
                         roadwayPalette.shareBusway,
                         ['==', ['get', 'cyclewayRight'], 'shared_lane'],
                         roadwayPalette.sharedLane,
+                        ['==', ['get', 'cyclewayRight'], 'shoulder'],
+                        roadwayPalette.shoulder,
                         roadwayPalette.none
                     ],
                     'line-width': [
@@ -167,7 +161,7 @@ export class BikeMapApp extends LitElement {
                         ['literal', [1]],
                         ['all',
                             ['==', ['get', 'cyclewayRight'], 'lane'],
-                            ['has', 'cyclewayRightBuffer' ],
+                            ['has', 'cyclewayRightBuffer'],
                         ],
                         ['literal', [2, 2]],
                         ['==', ['get', 'cyclewayRight'], 'lane'],
@@ -187,69 +181,71 @@ export class BikeMapApp extends LitElement {
                     ]
                 }
             });
-        
+
             map.addLayer({
-            'id': 'cycling-lanes-left',
-            'type': 'line',
-            'source': 'cycling-data',
-            'layout': {},
-            'filter': [
-                'all',
-                ['has', 'cyclewayLeft'],
-                ['!=', ['get', 'cyclewayLeft'], 'no']
-            ],
-            'paint': {
-                'line-color': [
-                    'case',
-                    ['==', ['get', 'cyclewayLeft'], 'track'],
-                    roadwayPalette.cycleTrack,
-                    ['all',
+                'id': 'cycling-lanes-left',
+                'type': 'line',
+                'source': 'cycling-data',
+                'layout': {},
+                'filter': [
+                    'all',
+                    ['has', 'cyclewayLeft'],
+                    ['!=', ['get', 'cyclewayLeft'], 'no']
+                ],
+                'paint': {
+                    'line-color': [
+                        'case',
+                        ['==', ['get', 'cyclewayLeft'], 'track'],
+                        roadwayPalette.cycleTrack,
+                        ['all',
+                            ['==', ['get', 'cyclewayLeft'], 'lane'],
+                            ['has', 'cyclewayLeftBuffer'],
+                        ],
+                        roadwayPalette.bufferedLane,
                         ['==', ['get', 'cyclewayLeft'], 'lane'],
-                        ['has', 'cyclewayLeftBuffer' ],
+                        roadwayPalette.lane,
+                        ['==', ['get', 'cyclewayLeft'], 'share_busway'],
+                        roadwayPalette.shareBusway,
+                        ['==', ['get', 'cyclewayLeft'], 'shared_lane'],
+                        roadwayPalette.sharedLane,
+                        ['==', ['get', 'cyclewayLeft'], 'shoulder'],
+                        roadwayPalette.shoulder,
+                        roadwayPalette.none
                     ],
-                    roadwayPalette.bufferedLane,
-                    ['==', ['get', 'cyclewayLeft'], 'lane'],
-                    roadwayPalette.lane,
-                    ['==', ['get', 'cyclewayLeft'], 'share_busway'],
-                    roadwayPalette.shareBusway,
-                    ['==', ['get', 'cyclewayLeft'], 'shared_lane'],
-                    roadwayPalette.sharedLane,
-                    roadwayPalette.none
-                ],
-                'line-width': [
-                    'interpolate',
-                    ['linear'],
-                    ['zoom'],
-                    10,
-                    1,
-                    17,
-                    4
-                ],
-                'line-dasharray': [
-                    'case',
-                    ['==', ['get', 'cyclewayLeft'], 'track'],
-                    ['literal', [1]],
-                    ['all',
+                    'line-width': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        10,
+                        1,
+                        17,
+                        4
+                    ],
+                    'line-dasharray': [
+                        'case',
+                        ['==', ['get', 'cyclewayLeft'], 'track'],
+                        ['literal', [1]],
+                        ['all',
+                            ['==', ['get', 'cyclewayLeft'], 'lane'],
+                            ['has', 'cyclewayLeftBuffer'],
+                        ],
+                        ['literal', [2, 2]],
                         ['==', ['get', 'cyclewayLeft'], 'lane'],
-                        ['has', 'cyclewayLeftBuffer' ],
+                        ['literal', [2, 4]],
+                        ['==', ['get', 'cyclewayLeft'], 'shared_lane'],
+                        ['literal', [2, 8]],
+                        ['literal', []]
                     ],
-                    ['literal', [2, 2]],
-                    ['==', ['get', 'cyclewayLeft'], 'lane'],
-                    ['literal', [2, 4]],
-                    ['==', ['get', 'cyclewayLeft'], 'shared_lane'],
-                    ['literal', [2, 8]],
-                    ['literal', []]
-                ],
-                'line-offset': [
-                    'interpolate',
-                    ['linear'],
-                    ['zoom'],
-                    12,
-                    0,
-                    22,
-                    -15
-                ]
-            }
+                    'line-offset': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        12,
+                        0,
+                        22,
+                        -15
+                    ]
+                }
             });
         });
     }
