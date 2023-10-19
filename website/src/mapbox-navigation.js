@@ -16,12 +16,18 @@ export class MapboxNavigation extends LitElement {
 
     static get properties() {
         return {
-            placementMode: { type: String },
+            interactionState: { type: String },
         };
     }
 
     get _map() {
         return this._mapConsumer.value;
+    }
+
+    _setStateHandler(interactionState) {
+        return (event) => {
+            this.interactionState = interactionState;
+        }
     }
 
     _createGeojsonPoint(coords) {
@@ -92,14 +98,23 @@ export class MapboxNavigation extends LitElement {
             return;
 
         map.on('click', (event) => {
-            const coords = Object.keys(event.lngLat).map((key) => event.lngLat[key]);
+            const coords = Object.keys(event.lngLat)
+                .map((key) => event.lngLat[key]);
 
-            if (this.placementMode === 'start') {
-                this._placeStartPoint(coords);
-                this.start = coords;
-            } else if (this.placementMode === 'end') {
-                this._placeEndPoint(coords);
-                this.end = coords;
+            switch(this.interactionState) {
+                case 'place-start':
+                    this._placeStartPoint(coords);
+                    this.start = coords;
+                    this.interactionState = 'select';
+                    break;
+                case 'place-end':
+                    this._placeEndPoint(coords);
+                    this.end = coords;
+                    this.interactionState = 'select';
+                    break;
+                case 'select':
+                default:
+                    break;
             }
 
             if (this.start && this.end) {
@@ -108,10 +123,18 @@ export class MapboxNavigation extends LitElement {
         });
     }
 
-    async getRoute(start, end) {
+    async getRoute(...coords) {
         const map = this._map;
+        const coordUrlParam = coords.map(coord => `${coord[0]},${coord[1]}`)
+            .join(';');
+        const directionsApiUrl = new URL(`https://api.mapbox.com/directions/v5/mapbox/cycling/${coordUrlParam}`);
+        directionsApiUrl.searchParams.set('steps', 'true');
+        directionsApiUrl.searchParams.set('overview', 'full');
+        directionsApiUrl.searchParams.set('geometries', 'geojson');
+        directionsApiUrl.searchParams.set('access_token', mapboxgl.accessToken);
+        directionsApiUrl.searchParams.set('alternatives', 'true');
         const query = await fetch(
-            `https://api.mapbox.com/directions/v5/mapbox/cycling/${start[0]},${start[1]};${end[0]},${end[1]}?steps=true&geometries=geojson&access_token=${mapboxgl.accessToken}`,
+            directionsApiUrl,
             { method: 'GET' }
         );
         const json = await query.json();
@@ -190,20 +213,19 @@ export class MapboxNavigation extends LitElement {
         return html`
             <div class="card height-1 directions">
                 <h2>Directions</h2>
-                <p>First, press "Start" and select a place on the map. Next, press "End" and select a destination</p>
-                <div>
-                    <button
-                        @click=${() => { this.placementMode = 'start'; }}
+                <p>Get cycling directions in Charlotte.</p>
+                <input
+                    type="text"
+                    placeholder="Starting point"
+                    value=${`${this?.start?.map((a) => a.toFixed(6)).join(', ') || ""}`}
+                    @focus=${this._setStateHandler('place-start')}
                     >
-                        Start
-                    </button>
-                </div>
-                <div>
-                <button
-                        @click=${() => { this.placementMode = 'end'; }}
+                <input
+                    type="text"
+                    placeholder="Destination"
+                    value=${`${this?.end?.map((a) => a.toFixed(6)).join(', ') || ""}`}
+                    @focus=${this._setStateHandler('place-end')}
                     >
-                        End
-                    </button>
                 </div>
             </div>
         `;
