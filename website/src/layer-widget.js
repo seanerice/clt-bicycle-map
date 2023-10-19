@@ -2,6 +2,7 @@ import { ContextConsumer } from "@lit/context";
 import { LitElement, html, css, nothing } from "lit";
 import { mapContext } from "./mapContext";
 import './ser-checkbox.js';
+import { baseStyles } from "./styles";
 
 export class LayerWidget extends LitElement {
     _mapConsumer = new ContextConsumer(
@@ -11,7 +12,7 @@ export class LayerWidget extends LitElement {
             subscribe: true
         }
     );
-    
+
     connectedCallback() {
         super.connectedCallback();
         this.addEventListener('updated', this._handleUpdated)
@@ -21,7 +22,7 @@ export class LayerWidget extends LitElement {
         super.disconnectedCallback();
         super.addEventListener('updated', this._handleUpdated);
     }
- 
+
     static get properties() {
         return {};
     }
@@ -110,7 +111,7 @@ export class LayerWidget extends LitElement {
             this._mapConsumer.value.setFilter('cycling-paths', cyclePathFilters);
         }
 
-        switch(elementId) {
+        switch (elementId) {
             case 'routes':
                 this._toggleLayer('cycling-route-lines', checked || indeterminate);
                 this._toggleLayer('cycling-route-symbols', checked || indeterminate);
@@ -138,62 +139,68 @@ export class LayerWidget extends LitElement {
         }
     }
 
-    static styles = css`
-        :host {
-            display: block;
-            position: absolute;
-            right: 0;
-            background: #efefef;
-            padding: 10px;
-            font-family: 'Open Sans', sans-serif;
-            z-index: 1;
-        }
+    static styles = [
+        baseStyles,
+        css`
+            :host {
+                font-family: 'Open Sans', sans-serif;
+                display: block;
+                position: absolute;
+                right: 10px;
+                top: 10px;
+                z-index: 1;
+            }
 
-        .greenway-route-line {
-            display: inline-block;
-            width: 10px;
-            margin: 5px 0;
-            height: 5px;
-            background:
-              repeating-linear-gradient(90deg, #3964C4 0 5px)
-        }
+            .widget {
+                max-width: 33.3vw;
+            }
 
-        .signed-route-line {
-            display: inline-block;
-            width: 10px;
-            margin: 5px 0;
-            height: 5px;
-            background:
-              repeating-linear-gradient(90deg, #e6c627 0 5px)
-        }
+            .greenway-route-line {
+                display: inline-block;
+                width: 10px;
+                margin: 5px 0;
+                height: 5px;
+                background:
+                repeating-linear-gradient(90deg, #3964C4 0 5px)
+            }
 
-        .suggested-route-line {
-            display: inline-block;
-            width: 10px;
-            margin: 5px 0;
-            height: 5px;
-            background:
-              repeating-linear-gradient(90deg, #8539C4 0 5px)
-        }
+            .signed-route-line {
+                display: inline-block;
+                width: 10px;
+                margin: 5px 0;
+                height: 5px;
+                background:
+                repeating-linear-gradient(90deg, #e6c627 0 5px)
+            }
 
-        .allowed-path-line {
-            display: inline-block;
-            width: 10px;
-            margin: 5px 0;
-            height: 2px;
-            background:
-              repeating-linear-gradient(90deg, #0DDD37 0 5px)
-        }
+            .suggested-route-line {
+                display: inline-block;
+                width: 10px;
+                margin: 5px 0;
+                height: 5px;
+                background:
+                repeating-linear-gradient(90deg, #8539C4 0 5px)
+            }
 
-        .designated-path-line {
-            display: inline-block;
-            width: 10px;
-            margin: 5px 0;
-            height: 2px;
-            background:
-              repeating-linear-gradient(90deg, #2747c4 0 5px)
-        }
-    `;
+            .allowed-path-line {
+                display: inline-block;
+                width: 10px;
+                margin: 5px 0;
+                height: 2px;
+                background:
+                repeating-linear-gradient(90deg, #0DDD37 0 5px)
+            }
+
+            .designated-path-line {
+                display: inline-block;
+                width: 10px;
+                margin: 5px 0;
+                height: 2px;
+                background:
+                repeating-linear-gradient(90deg, #2747c4 0 5px)
+            }
+        `
+    ];
 
     render() {
         if (!this._mapConsumer.value) {
@@ -201,26 +208,28 @@ export class LayerWidget extends LitElement {
         }
 
         return html`
-            <ser-checkbox id="routes" label="Routes" .checked=${true}>
-                <ser-checkbox id="greenway-routes" .checked=${true}>
-                    <label slot="label"><span class="greenway-route-line"></span>Greenway Routes</label>
+            <div class="card height-1 widget">
+                <ser-checkbox id="routes" label="Routes" .checked=${true}>
+                    <ser-checkbox id="greenway-routes" .checked=${true}>
+                        <label slot="label"><span class="greenway-route-line"></span>Greenway Routes</label>
+                    </ser-checkbox>
+                    <ser-checkbox id="signed-routes" .checked=${true}>
+                        <label slot="label"><span class="signed-route-line"></span>Signed Routes</label>
+                    </ser-checkbox>
+                    <ser-checkbox id="suggested-routes" .checked=${true}>
+                        <label slot="label"><span class="suggested-route-line"></span>Suggested Routes</label>
+                    </ser-checkbox>
                 </ser-checkbox>
-                <ser-checkbox id="signed-routes" .checked=${true}>
-                    <label slot="label"><span class="signed-route-line"></span>Signed Routes</label>
+                <ser-checkbox id="bike-lanes" label="Bike Lanes" .checked=${true}></ser-checkbox>
+                <ser-checkbox id="cycle-paths" label="Cycle Paths" .checked=${true}>
+                    <ser-checkbox id="allowed-cycle-paths" .checked=${true}>
+                        <label slot="label"><span class="allowed-path-line"></span>Allowed</label>
+                    </ser-checkbox>
+                    <ser-checkbox id="designated-cycle-paths" .checked=${true}>
+                        <label slot="label"><span class="designated-path-line"></span>Designated</label>
+                    </ser-checkbox>
                 </ser-checkbox>
-                <ser-checkbox id="suggested-routes" .checked=${true}>
-                    <label slot="label"><span class="suggested-route-line"></span>Suggested Routes</label>
-                </ser-checkbox>
-            </ser-checkbox>
-            <ser-checkbox id="bike-lanes" label="Bike Lanes" .checked=${true}></ser-checkbox>
-            <ser-checkbox id="cycle-paths" label="Cycle Paths" .checked=${true}>
-                <ser-checkbox id="allowed-cycle-paths" .checked=${true}>
-                    <label slot="label"><span class="allowed-path-line"></span>Allowed</label>
-                </ser-checkbox>
-                <ser-checkbox id="designated-cycle-paths" .checked=${true}>
-                    <label slot="label"><span class="designated-path-line"></span>Designated</label>
-                </ser-checkbox>
-            </ser-checkbox>
+            </div>
         `;
     }
 }

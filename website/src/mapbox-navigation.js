@@ -1,8 +1,9 @@
 
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { ContextConsumer } from '@lit/context';
 import { mapContext } from './mapContext';
 import mapboxgl from 'mapbox-gl';
+import { baseStyles } from './styles';
 
 export class MapboxNavigation extends LitElement {
     _mapConsumer = new ContextConsumer(
@@ -172,8 +173,10 @@ export class MapboxNavigation extends LitElement {
     }
 
     static styles = [
+        baseStyles,
         css`
             :host {
+                font-family: 'Open Sans', sans-serif;
                 display: block;
                 position: absolute;
                 top: 10px;
@@ -181,26 +184,8 @@ export class MapboxNavigation extends LitElement {
                 z-index: 1;
             }
 
-            .card {
-                background: #fff;
-                padding: 1rem;
-                border-radius: 4px;
-            }
-
-            h2.card {
-
-            }
-
             .directions {
                 max-width: 33.3vw;
-            }
-
-            .height-1 {
-                box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
-            }
-
-            .height-2 {
-                box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
             }
 
             button {
@@ -210,6 +195,9 @@ export class MapboxNavigation extends LitElement {
     ];
 
     render() {
+        if (!this._map)
+            return nothing;
+
         return html`
             <div class="card height-1 directions">
                 <h2>Directions</h2>
