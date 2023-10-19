@@ -178,16 +178,7 @@ export class MapboxNavigation extends LitElement {
         baseStyles,
         css`
             :host {
-                font-family: 'Open Sans', sans-serif;
                 display: block;
-                position: absolute;
-                top: 10px;
-                left: 10px;
-                z-index: 1;
-            }
-
-            .directions {
-                max-width: 33.3vw;
             }
 
             button {
@@ -201,7 +192,7 @@ export class MapboxNavigation extends LitElement {
             return nothing;
 
         return html`
-            <div class="card height-1 directions">
+            <div>
                 <h3>Directions</h3>
                 <p>Get cycling directions in Charlotte.</p>
                 <input

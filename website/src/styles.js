@@ -1,6 +1,10 @@
 import { css } from "lit";
 
 export const baseStyles = css`
+    :host {
+        font-family: 'Open Sans', sans-serif;
+    }
+
     .card {
         background: #fff;
         padding: 1rem;

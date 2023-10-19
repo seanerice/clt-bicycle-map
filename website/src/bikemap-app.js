@@ -6,6 +6,7 @@ import './layer-widget.js';
 import mapboxglStyles from './mapbox-gl.css.js';
 import './mapbox-navigation.js';
 import { bicycleFacilityRatingColor, roadwayPalette } from './colors.js';
+import { baseStyles } from "./styles";
 
 export class BikeMapApp extends LitElement {
     _mapProvider = new ContextProvider(this, { context: mapContext });
@@ -250,20 +251,92 @@ export class BikeMapApp extends LitElement {
         });
     }
 
+    showMenu() {
+        this._showMenu = true;
+    }
+
     static styles = [
+        baseStyles,
         mapboxglStyles,
         css`
             :host {
                 display: block;
+            }
+
+            #map {
+                width: 100%;
+                height: 100vh;
+            }
+
+            .hidden {
+                display: none;
+            }
+
+            .menu {
+                display: block;
+                position: absolute;
+                left: -60vw;
+                width: 60vw;
+                height: 100%;
+                z-index: 1;
+                background: white;
+                transition: all .5s ease;
+            }
+
+            .navbar {
+                position: absolute;
+                display: inline-block;
+                top:0;
+                left:0;
+                right:0;
+                background: beige;
+                height: 5vh;
+                z-index: 1;
+            }
+
+            #menu-checkbox {
+                width: 2rem;
+                height: 2rem;
+                position: absolute;
+                z-index: 1;
+                left: 1vw;
+                top: 1vh;
+                transition: all .5s ease;
+            }
+
+            #menu-checkbox:checked {
+                left: 65vw;
+            }
+
+            #menu-checkbox:checked ~ .menu {
+                left: 0;
+            }
+
+            .menu-item {
+                margin: 0 1rem;
+            }
+
+            .menu > h1 {
+                margin-left: 1rem;
+                margin-right: 1rem;
             }
         `
     ];
 
     render() {
         return html`
-            <layer-widget></layer-widget>
-            <mapbox-navigation></mapbox-navigation>
-            <div id='map' style='width: 100%; height: 97vh;'></div>
+            <input type="checkbox" id="menu-checkbox">
+            <div class="menu">
+                <h1>Charlotte Bike Map</h1>
+                <div class="menu-item">
+                    <layer-widget></layer-widget>
+                </div>
+                <hr>
+                <div class="menu-item">
+                    <mapbox-navigation></mapbox-navigation>
+                </div>
+            </div>
+            <div id="map"></div>
         `;
     }
 }

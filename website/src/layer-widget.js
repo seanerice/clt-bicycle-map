@@ -250,16 +250,7 @@ export class LayerWidget extends LitElement {
         baseStyles,
         css`
             :host {
-                font-family: 'Open Sans', sans-serif;
                 display: block;
-                position: absolute;
-                right: 10px;
-                top: 10px;
-                z-index: 1;
-            }
-
-            .widget {
-                max-width: 33.3vw;
             }
 
             .greenway-route-line {
@@ -334,7 +325,7 @@ export class LayerWidget extends LitElement {
         }
 
         return html`
-            <div class="card height-1 widget">
+            <div>
                 <h3>Layers</h3>
                 <ser-checkbox id="routes" label="Routes" .checked=${true}>
                     <ser-checkbox id="greenway-routes" .checked=${true}>
