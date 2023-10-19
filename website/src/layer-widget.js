@@ -209,6 +209,7 @@ export class LayerWidget extends LitElement {
 
         return html`
             <div class="card height-1 widget">
+                <h3>Layers</h3>
                 <ser-checkbox id="routes" label="Routes" .checked=${true}>
                     <ser-checkbox id="greenway-routes" .checked=${true}>
                         <label slot="label"><span class="greenway-route-line"></span>Greenway Routes</label>
