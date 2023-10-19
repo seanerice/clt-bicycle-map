@@ -1,18 +1,26 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
+const dev = true;
+
 module.exports = {
+    mode: dev ? 'development' : 'production',
     entry: './src/bikemap-app.js',
     output: {
         path: path.resolve(__dirname, 'dist'),
-        filename: '[name].[contenthash].js',
+        filename: dev ? '[name].js' : '[name].[contenthash].js',
         clean: true
+    },
+    devServer: {
+        static: './dist',
+        hot: false,
+        watchFiles: ['src/**/*.js'],
     },
     module: {
         rules: [
             {
-            test: /\.html$/,
-            loader: 'html-loader'
+                test: /\.html$/,
+                loader: 'html-loader'
             }],
     },
     plugins: [
