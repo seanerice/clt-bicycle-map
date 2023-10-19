@@ -107,19 +107,21 @@ export class MapboxNavigation extends LitElement {
                     this._placeStartPoint(coords);
                     this.start = coords;
                     this.interactionState = 'select';
+                    if (this.start && this.end) {
+                        this.getRoute(this.start, this.end);
+                    }
                     break;
                 case 'place-end':
                     this._placeEndPoint(coords);
                     this.end = coords;
                     this.interactionState = 'select';
+                    if (this.start && this.end) {
+                        this.getRoute(this.start, this.end);
+                    }
                     break;
                 case 'select':
                 default:
                     break;
-            }
-
-            if (this.start && this.end) {
-                this.getRoute(this.start, this.end);
             }
         });
     }
@@ -200,7 +202,7 @@ export class MapboxNavigation extends LitElement {
 
         return html`
             <div class="card height-1 directions">
-                <h2>Directions</h2>
+                <h3>Directions</h3>
                 <p>Get cycling directions in Charlotte.</p>
                 <input
                     type="text"
