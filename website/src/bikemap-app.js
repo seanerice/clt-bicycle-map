@@ -265,7 +265,7 @@ export class BikeMapApp extends LitElement {
 
             #map {
                 width: 100%;
-                height: 100vh;
+                height: 100dvh;
             }
 
             .hidden {
