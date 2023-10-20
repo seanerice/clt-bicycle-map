@@ -7,6 +7,7 @@ import mapboxglStyles from './mapbox-gl.css.js';
 import './mapbox-navigation.js';
 import { bicycleFacilityRatingColor, roadwayPalette } from './colors.js';
 import { baseStyles } from "./styles";
+import './mwc-icon.js';
 
 export class BikeMapApp extends LitElement {
     _mapProvider = new ContextProvider(this, { context: mapContext });
@@ -295,21 +296,45 @@ export class BikeMapApp extends LitElement {
             }
 
             #menu-checkbox {
-                width: 2rem;
-                height: 2rem;
+                display: none;
+            }
+
+            label #menu-button, label #menu-cancel {
+                --mdc-icon-size: 2rem;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 0.3rem;
                 position: absolute;
                 z-index: 1;
                 left: 1vw;
                 top: 1vh;
                 transition: all .5s ease;
+                background: white;
+                border-radius: 3px;
             }
 
-            #menu-checkbox:checked {
-                left: 65vw;
+            #menu-checkbox:checked ~ label #menu-button, #menu-checkbox:checked ~ label #menu-cancel {
+                left: 61vw;
             }
 
             #menu-checkbox:checked ~ .menu {
                 left: 0;
+            }
+
+            #menu-checkbox:checked ~ label #menu-button {
+                opacity: 0;
+                visibility: hidden;
+            }
+
+            label #menu-cancel {
+                opacity: 0;
+                visibility: hidden;
+            }
+
+            #menu-checkbox:checked ~ label #menu-cancel {
+                opacity: 1;
+                visibility: visible;
             }
 
             .menu-item {
@@ -326,7 +351,11 @@ export class BikeMapApp extends LitElement {
     render() {
         return html`
             <input type="checkbox" id="menu-checkbox">
-            <div class="menu">
+            <label for="menu-checkbox">
+                <mwc-icon id="menu-button" icon="menu" class="height-1"></mwc-icon>
+                <mwc-icon id="menu-cancel" icon="close" class="height-1"></mwc-icon>
+            </label>
+            <div class="menu height-1">
                 <h1>Charlotte Bike Map</h1>
                 <div class="menu-item">
                     <layer-widget></layer-widget>
