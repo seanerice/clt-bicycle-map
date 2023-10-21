@@ -282,6 +282,22 @@ export class MapboxNavigation extends LitElement {
             #choose-location-widget.visible {
                 display: block;
             }
+
+            #input-container {
+                display: grid;
+                grid-template-columns: 1fr 3fr 1fr;
+            }
+
+            #input-container > * {
+                grid-column: 2 / span 1;
+                justify-self: center;
+            }
+
+            #input-container > * > input {
+                width: 100%;
+                height: 3rem;
+                margin-top: 1rem;
+            }
         `
     ];
 
@@ -297,6 +313,7 @@ export class MapboxNavigation extends LitElement {
                     placeholder=${`Intermediate Point ${i}`}
                     value=${`${this.coords[i] || ""}`}
                     @focus=${this._inputFocusHandler(i)}
+                    inputmode="none"
                 >
             `);
         }
@@ -311,13 +328,14 @@ export class MapboxNavigation extends LitElement {
         return html`
                 <!-- <h3>Directions</h3> -->
                 <!-- <p>Get cycling directions in Charlotte.</p> -->
-                <div>
+                <div id="input-container">
                     <div>
                         <input
                             type="text"
                             placeholder="Starting point"
                             value=${`${this.coords[0] || ""}`}
                             @focus=${this._inputFocusHandler(0)}
+                            inputmode="none"
                             >
                     </div>
                     ${this._getIntermediatePointsTemplate()}
@@ -327,6 +345,7 @@ export class MapboxNavigation extends LitElement {
                             placeholder="Destination"
                             value=${`${this.coords[this.coords.length - 1] || ""}`}
                             @focus=${this._inputFocusHandler(this.coords.length - 1)}
+                            inputmode="none"
                             >
                     </div>
                 </div>
