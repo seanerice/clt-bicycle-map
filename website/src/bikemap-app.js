@@ -6,12 +6,22 @@ import './layer-widget.js';
 import mapboxglStyles from './mapbox-gl.css.js';
 import './mapbox-navigation.js';
 import { bicycleFacilityRatingColor, roadwayPalette } from './colors.js';
+import { baseStyles } from "./styles";
+import './mwc-icon.js';
+import { classMap } from 'lit/directives/class-map.js';
 
 export class BikeMapApp extends LitElement {
     _mapProvider = new ContextProvider(this, { context: mapContext });
 
+    constructor() {
+        super();
+        this._showDirectionsWidget = false;
+    }
+
     static get properties() {
-        return {};
+        return {
+            _showDirectionsWidget: { type: Boolean }
+        };
     }
 
     firstUpdated() {
@@ -250,20 +260,176 @@ export class BikeMapApp extends LitElement {
         });
     }
 
+    _handleDirectionsButtonClick() {
+        this._showDirectionsWidget = !this._showDirectionsWidget;
+    }
+
+    _handleCloseNavButtonClick() {
+        this._showDirectionsWidget = false;
+    }
+
     static styles = [
+        baseStyles,
         mapboxglStyles,
         css`
             :host {
                 display: block;
+            }
+
+            #map {
+                width: 100%;
+                height: 100dvh;
+            }
+
+            .hidden {
+                display: none;
+            }
+
+            .menu {
+                display: block;
+                position: absolute;
+                left: -60vw;
+                width: 60vw;
+                height: 100%;
+                z-index: 200;
+                background: white;
+                transition: all .5s ease;
+            }
+
+            #menu-checkbox {
+                display: none;
+            }
+
+            label #menu-button, label #menu-cancel {
+                --mdc-icon-size: 2rem;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 0.3rem;
+                position: absolute;
+                z-index: 100;
+                left: 1vw;
+                top: 1vh;
+                transition: all .5s ease;
+                background: white;
+                border-radius: 3px;
+            }
+
+            #menu-checkbox:checked ~ label #menu-button, #menu-checkbox:checked ~ label #menu-cancel {
+                left: 61vw;
+            }
+
+            #menu-checkbox:checked ~ .menu {
+                left: 0;
+            }
+
+            #menu-checkbox:checked ~ label #menu-button {
+                opacity: 0;
+                visibility: hidden;
+            }
+
+            label #menu-cancel {
+                opacity: 0;
+                visibility: hidden;
+            }
+
+            #menu-checkbox:checked ~ label #menu-cancel {
+                opacity: 1;
+                visibility: visible;
+            }
+
+            .menu-item {
+                margin: 0 1rem;
+                display: inline-block
+            }
+
+            .menu > h1 {
+                margin-left: 1rem;
+                margin-right: 1rem;
+            }
+
+            #directions-button {
+                --mdc-icon-size: 2rem;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 0.3rem;
+                position: absolute;
+                z-index: 100;
+                left: 1vw;
+                top: calc(1vh + 3rem);
+                transition: all .5s ease;
+                background: white;
+                border: none;
+                border-radius: 3px;
+                border-color: none;
+            }
+
+            #navigation-widget {
+                position: absolute;
+                bottom: -40vh;
+                left: 0;
+                right: 0;
+                max-height: 40vh;
+                height: 40vh;
+                z-index: 100;
+                background: white;
+                transition: all .5s ease;
+                display: flex;
+                flex-direction: column;
+            }
+
+            #navigation-widget.visible {
+                bottom: 0;
+            }
+
+            button.nostyle {
+                --mdc-icon-size: 2rem;
+                border: none;
+                background: unset;
+                padding: 0;
+            }
+
+            #close-nav-button {
+                display: flex;
+                align-self: flex-end;
             }
         `
     ];
 
     render() {
         return html`
-            <layer-widget></layer-widget>
-            <mapbox-navigation></mapbox-navigation>
-            <div id='map' style='width: 100%; height: 97vh;'></div>
+            <input type="checkbox" id="menu-checkbox">
+            <label for="menu-checkbox">
+                <mwc-icon id="menu-button" icon="menu" class="height-1"></mwc-icon>
+                <mwc-icon id="menu-cancel" icon="close" class="height-1"></mwc-icon>
+            </label>
+            <button
+                id="directions-button"
+                class="height-1"
+                @click=${this._handleDirectionsButtonClick}
+            >
+                <mwc-icon icon="directions"></mwc-icon>
+            </button>
+            
+            <div id="navigation-widget" class=${classMap({ visible: this._showDirectionsWidget })}>
+                <button
+                    id="close-nav-button"
+                    class="nostyle"
+                    @click=${this._handleCloseNavButtonClick}
+                >
+                    <mwc-icon icon="close"></mwc-icon>
+                </button>
+                <mapbox-navigation></mapbox-navigation>
+            </div>
+
+            <div class="menu height-1">
+                <h1>Charlotte Bike Map</h1>
+                <div class="menu-item">
+                    <layer-widget></layer-widget>
+                </div>
+            </div>
+            <div id="map"></div>
         `;
     }
 }

@@ -8,7 +8,7 @@ module.exports = {
     entry: './src/bikemap-app.js',
     output: {
         path: path.resolve(__dirname, 'dist'),
-        filename: dev ? '[name].js' : '[name].[contenthash].js',
+        filename: '[name].[contenthash].js',
         clean: true
     },
     devServer: {
@@ -21,7 +21,8 @@ module.exports = {
             {
                 test: /\.html$/,
                 loader: 'html-loader'
-            }],
+            }
+        ],
     },
     plugins: [
         new HtmlWebpackPlugin({
