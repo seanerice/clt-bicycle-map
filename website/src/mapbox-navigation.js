@@ -269,18 +269,20 @@ export class MapboxNavigation extends LitElement {
             }
 
             #choose-location-widget {
-                display:none;
                 position: fixed;
-                top: 0;
-                bottom: 0;
+                height: 100vh;
+                height: 100dvh;
+                bottom: -100vh;
+                bottom: -100dvh;
                 left: 0;
                 right: 0;
                 background-color: white;
                 z-index: 201;
+                transition: all .5s ease;
             }
 
             #choose-location-widget.visible {
-                display: block;
+                bottom: 0;
             }
 
             #input-container {
