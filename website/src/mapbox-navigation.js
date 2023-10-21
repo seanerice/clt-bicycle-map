@@ -4,6 +4,8 @@ import { ContextConsumer } from '@lit/context';
 import { mapContext } from './mapContext';
 import mapboxgl from 'mapbox-gl';
 import { baseStyles } from './styles';
+import './mwc-icon.js';
+import { classMap } from 'lit-html/directives/class-map.js';
 
 export class MapboxNavigation extends LitElement {
     _mapConsumer = new ContextConsumer(
@@ -15,9 +17,17 @@ export class MapboxNavigation extends LitElement {
         }
     );
 
+    constructor() {
+        super();
+
+        this.coords = [null, null];
+    }
+
     static get properties() {
         return {
             interactionState: { type: String },
+            _showChooseLocationWidget: { type: Boolean }
+
         };
     }
 
@@ -25,9 +35,46 @@ export class MapboxNavigation extends LitElement {
         return this._mapConsumer.value;
     }
 
-    _setStateHandler(interactionState) {
+    _menuClickHandler(menuItemType) {
         return (event) => {
-            this.interactionState = interactionState;
+            this._placePointMode = false;
+
+            switch (menuItemType) {
+                case 'my-location':
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            const coord = [
+                                pos.coords.longitude,
+                                pos.coords.latitude
+                            ];
+                            this._map.flyTo({
+                                center: coord,
+                                zoom: 15,
+                                duration: 2000,
+                                essential: true
+                            });
+                            this._setCoord(coord);
+                        },
+                        (err) => {
+                            console.error(err);
+                        }
+                    );
+                    this._showChooseLocationWidget = false;
+                    break;
+                case 'select-location-on-map':
+                    this._placePointMode = true;
+                    this._showChooseLocationWidget = false;
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    _inputFocusHandler(focusedIndex) {
+        return (event) => {
+            this._focusedIndex = focusedIndex;
+            this._showChooseLocationWidget = true;
         }
     }
 
@@ -47,81 +94,99 @@ export class MapboxNavigation extends LitElement {
         };
     }
 
-    _placeEndPoint(coords) {
-        const map = this._map;
-        const geojsonData = this._createGeojsonPoint(coords);
-
-        if (!map.getLayer('end')) {
-            map.addLayer({
-                id: 'end',
-                type: 'circle',
-                source: {
-                    type: 'geojson',
-                    data: this._createGeojsonPoint(geojsonData)
-                },
-                paint: {
-                    'circle-radius': 10,
-                    'circle-color': '#f30'
-                }
-            });
+    _addIntermediatePoint(index, coord) {
+        if (index === 0 || this.coords.length - 1) {
+            throw new Error("Cannot add intermediate point to start or end of array");
         }
 
-        map.getSource('end')
-            .setData(geojsonData);
+        this.coords.splice(index, 0, coord);
     }
 
-    _placeStartPoint(coords) {
-        const map = this._map;
-        const geojsonData = this._createGeojsonPoint(coords);
-
-        if (!map.getLayer('start')) {
-            map.addLayer({
-                id: 'start',
-                type: 'circle',
-                source: {
-                    type: 'geojson',
-                    data: this._createGeojsonPoint(geojsonData)
-                },
-                paint: {
-                    'circle-radius': 10,
-                    'circle-color': '#14db02'
-                }
-            });
+    _removeIntermediatePoint(index) {
+        if (index === 0 || this.coords.length - 1) {
+            throw new Error("Cannot remove intermediate point to start or end of array");
         }
 
-        map.getSource('start')
-            .setData(geojsonData);
+        this.coords.splice(index, 1);
+    }
+
+    _updateMapPoints(...coords) {
+        const start = coords[0];
+        const end = coords[coords.length - 1];
+        const intermediatePoints = coords.slice(1, -1);
+        const map = this._map;
+
+        if (start) {
+            const geojsonData = this._createGeojsonPoint(start);
+            if (!map.getLayer('start')) {
+                map.addLayer({
+                    id: 'start',
+                    type: 'circle',
+                    source: {
+                        type: 'geojson',
+                        data: this._createGeojsonPoint(geojsonData)
+                    },
+                    paint: {
+                        'circle-radius': 10,
+                        'circle-color': '#14db02'
+                    }
+                });
+            }
+
+            map.getSource('start')
+                .setData(geojsonData);
+        }
+
+        if (end) {
+            const geojsonData = this._createGeojsonPoint(end);
+    
+            if (!map.getLayer('end')) {
+                map.addLayer({
+                    id: 'end',
+                    type: 'circle',
+                    source: {
+                        type: 'geojson',
+                        data: this._createGeojsonPoint(geojsonData)
+                    },
+                    paint: {
+                        'circle-radius': 10,
+                        'circle-color': '#f30'
+                    }
+                });
+            }
+    
+            map.getSource('end')
+                .setData(geojsonData);
+        }
+
+        for (const coord of intermediatePoints) {
+            // todo: implement intermediate points
+            throw new Error("Not implemented");
+        }
+    }
+
+    _setCoord(coord) {
+        this.coords[this._focusedIndex] = coord;
+        this.coords = [...this.coords];
+
+        this._updateMapPoints(...this.coords);
+
+        if (this.coords.every(coord => !!coord)) {
+            this.getRoute(...this.coords);
+        }
     }
 
     _mapChanged(map) {
-        console.log("map", map);
         if (!map)
             return;
 
         map.on('click', (event) => {
-            const coords = Object.keys(event.lngLat)
-                .map((key) => event.lngLat[key]);
-
-            switch(this.interactionState) {
-                case 'place-start':
-                    this._placeStartPoint(coords);
-                    this.start = coords;
-                    this.interactionState = 'select';
-                    if (this.start && this.end) {
-                        this.getRoute(this.start, this.end);
-                    }
-                    break;
-                case 'place-end':
-                    this._placeEndPoint(coords);
-                    this.end = coords;
-                    this.interactionState = 'select';
-                    if (this.start && this.end) {
-                        this.getRoute(this.start, this.end);
-                    }
-                    break;
-                case 'select':
-                default:
-                    break;
+            if (this._placePointMode) {
+                const coords = Object.keys(event.lngLat)
+                    .map((key) => event.lngLat[key]);
+                
+                this._setCoord(coords);
+                this._placePointMode = false;
             }
         });
     }
@@ -184,31 +249,98 @@ export class MapboxNavigation extends LitElement {
             button {
                 margin-bottom: 0.4rem;
             }
+
+            .menu-item {
+                display: block;
+                padding: 1rem;
+            }
+
+            .menu-item > * {
+                display: inline-block;
+                vertical-align: middle;
+            }
+
+            .menu-item > mwc-icon {
+                margin-right: 1rem;                
+            }
+
+            .menu-item:hover {
+                background-color: lightgray;
+            }
+
+            #choose-location-widget {
+                display:none;
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                background-color: white;
+                z-index: 201;
+            }
+
+            #choose-location-widget.visible {
+                display: block;
+            }
         `
     ];
+
+    _getIntermediatePointsTemplate() {
+        const intermediatePointInputs = [];
+        if (this.coords.length <= 2)
+            return nothing;
+
+        for (let i = 1; i < this.coords.length - 2; i += 1) {
+            intermediatePointInputs.push(html`
+                <input
+                    type="text"
+                    placeholder=${`Intermediate Point ${i}`}
+                    value=${`${this.coords[i] || ""}`}
+                    @focus=${this._inputFocusHandler(i)}
+                >
+            `);
+        }
+
+        return intermediatePointInputs;
+    }
 
     render() {
         if (!this._map)
             return nothing;
 
         return html`
-            <div>
-                <h3>Directions</h3>
-                <p>Get cycling directions in Charlotte.</p>
-                <input
-                    type="text"
-                    placeholder="Starting point"
-                    value=${`${this?.start?.map((a) => a.toFixed(6)).join(', ') || ""}`}
-                    @focus=${this._setStateHandler('place-start')}
-                    >
-                <input
-                    type="text"
-                    placeholder="Destination"
-                    value=${`${this?.end?.map((a) => a.toFixed(6)).join(', ') || ""}`}
-                    @focus=${this._setStateHandler('place-end')}
-                    >
+                <!-- <h3>Directions</h3> -->
+                <!-- <p>Get cycling directions in Charlotte.</p> -->
+                <div>
+                    <div>
+                        <input
+                            type="text"
+                            placeholder="Starting point"
+                            value=${`${this.coords[0] || ""}`}
+                            @focus=${this._inputFocusHandler(0)}
+                            >
+                    </div>
+                    ${this._getIntermediatePointsTemplate()}
+                    <div>
+                        <input
+                            type="text"
+                            placeholder="Destination"
+                            value=${`${this.coords[this.coords.length - 1] || ""}`}
+                            @focus=${this._inputFocusHandler(this.coords.length - 1)}
+                            >
+                    </div>
                 </div>
-            </div>
+                
+                <div id="choose-location-widget" class=${classMap({ visible: this._showChooseLocationWidget })}>
+                    <a class="menu-item" @click=${this._menuClickHandler('my-location')}>
+                        <mwc-icon icon="my_location"></mwc-icon>
+                        My Location
+                    </a>
+                    <a class="menu-item" @click=${this._menuClickHandler('select-location-on-map')}>
+                        <mwc-icon icon="location_on"></mwc-icon>
+                        Choose on the Map
+                    </a>
+                </div>
         `;
     }
 }
