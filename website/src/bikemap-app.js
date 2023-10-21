@@ -13,6 +13,11 @@ import { classMap } from 'lit/directives/class-map.js';
 export class BikeMapApp extends LitElement {
     _mapProvider = new ContextProvider(this, { context: mapContext });
 
+    constructor() {
+        super();
+        this._showDirectionsWidget = false;
+    }
+
     static get properties() {
         return {
             _showDirectionsWidget: { type: Boolean }
@@ -256,7 +261,11 @@ export class BikeMapApp extends LitElement {
     }
 
     _handleDirectionsButtonClick() {
-        this._showDirectionsWidget = true;
+        this._showDirectionsWidget = !this._showDirectionsWidget;
+    }
+
+    _handleCloseNavButtonClick() {
+        this._showDirectionsWidget = false;
     }
 
     static styles = [
@@ -404,7 +413,11 @@ export class BikeMapApp extends LitElement {
             </button>
             
             <div id="navigation-widget" class=${classMap({ visible: this._showDirectionsWidget })}>
-                <button id="close-nav-button" class="nostyle">
+                <button
+                    id="close-nav-button"
+                    class="nostyle"
+                    @click=${this._handleCloseNavButtonClick}
+                >
                     <mwc-icon icon="close"></mwc-icon>
                 </button>
                 <mapbox-navigation></mapbox-navigation>
