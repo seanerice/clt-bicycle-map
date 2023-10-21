@@ -94,7 +94,13 @@ export class SerCheckbox extends LitElement {
     _renderLabel(label) {
         if (label) {
             return html`
-                <label for="checkbox">${label}</label>
+                <label for="checkbox">
+                    <slot
+                        name="pre-label"
+                        @slotchange=${this._handleLabelSlotChanged}
+                    ></slot>
+                    ${label}
+                </label>
             `;
         }
 
@@ -111,11 +117,11 @@ export class SerCheckbox extends LitElement {
                 .indeterminate=${this.indeterminate}
                 @click=${this._handleClick}>
             ${this._renderLabel(this.label)}
-            <slot name="label"></slot>
             <slot
                 id="default-slot"
                 @slotchange=${this._handleSlotChange}
-                @internal-updated=${this._handleInternalUpdated}></slot>
+                @internal-updated=${this._handleInternalUpdated}
+            ></slot>
         `;
     }
 }
