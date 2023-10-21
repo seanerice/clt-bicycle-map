@@ -8,12 +8,15 @@ import './mapbox-navigation.js';
 import { bicycleFacilityRatingColor, roadwayPalette } from './colors.js';
 import { baseStyles } from "./styles";
 import './mwc-icon.js';
+import { classMap } from 'lit/directives/class-map.js';
 
 export class BikeMapApp extends LitElement {
     _mapProvider = new ContextProvider(this, { context: mapContext });
 
     static get properties() {
-        return {};
+        return {
+            _showDirectionsWidget: { type: Boolean }
+        };
     }
 
     firstUpdated() {
@@ -252,8 +255,8 @@ export class BikeMapApp extends LitElement {
         });
     }
 
-    showMenu() {
-        this._showMenu = true;
+    _handleDirectionsButtonClick() {
+        this._showDirectionsWidget = true;
     }
 
     static styles = [
@@ -279,20 +282,9 @@ export class BikeMapApp extends LitElement {
                 left: -60vw;
                 width: 60vw;
                 height: 100%;
-                z-index: 1;
+                z-index: 200;
                 background: white;
                 transition: all .5s ease;
-            }
-
-            .navbar {
-                position: absolute;
-                display: inline-block;
-                top:0;
-                left:0;
-                right:0;
-                background: beige;
-                height: 5vh;
-                z-index: 1;
             }
 
             #menu-checkbox {
@@ -306,7 +298,7 @@ export class BikeMapApp extends LitElement {
                 align-items: center;
                 padding: 0.3rem;
                 position: absolute;
-                z-index: 1;
+                z-index: 100;
                 left: 1vw;
                 top: 1vh;
                 transition: all .5s ease;
@@ -339,11 +331,46 @@ export class BikeMapApp extends LitElement {
 
             .menu-item {
                 margin: 0 1rem;
+                display: inline-block
             }
 
             .menu > h1 {
                 margin-left: 1rem;
                 margin-right: 1rem;
+            }
+
+            #directions-button {
+                --mdc-icon-size: 2rem;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 0.3rem;
+                position: absolute;
+                z-index: 100;
+                left: 1vw;
+                top: calc(1vh + 3rem);
+                transition: all .5s ease;
+                background: white;
+                border: none;
+                border-radius: 3px;
+                border-color: none;
+            }
+
+            #navigation-widget {
+                position: absolute;
+                display: block;
+                bottom: -40vh;
+                left: 0;
+                right: 0;
+                max-height: 40vh;
+                height: 40vh;
+                z-index: 100;
+                background: white;
+                transition: all .5s ease;
+            }
+
+            #navigation-widget.visible {
+                bottom: 0;
             }
         `
     ];
@@ -355,14 +382,22 @@ export class BikeMapApp extends LitElement {
                 <mwc-icon id="menu-button" icon="menu" class="height-1"></mwc-icon>
                 <mwc-icon id="menu-cancel" icon="close" class="height-1"></mwc-icon>
             </label>
+            <button
+                id="directions-button"
+                class="height-1"
+                @click=${this._handleDirectionsButtonClick}
+            >
+                <mwc-icon icon="directions"></mwc-icon>
+            </button>
+            
+            <div id="navigation-widget" class=${classMap({ visible: this._showDirectionsWidget })}>
+                <mapbox-navigation></mapbox-navigation>
+            </div>
+
             <div class="menu height-1">
                 <h1>Charlotte Bike Map</h1>
                 <div class="menu-item">
                     <layer-widget></layer-widget>
-                </div>
-                <hr>
-                <div class="menu-item">
-                    <mapbox-navigation></mapbox-navigation>
                 </div>
             </div>
             <div id="map"></div>
