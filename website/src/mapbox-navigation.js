@@ -285,18 +285,18 @@ export class MapboxNavigation extends LitElement {
 
             #input-container {
                 display: grid;
-                grid-template-columns: 1fr 3fr 1fr;
+                grid-template-columns: 1fr 5fr 1fr;
+                align-items: center;
+                grid-row-gap: 1rem;
             }
 
             #input-container > * {
-                grid-column: 2 / span 1;
                 justify-self: center;
             }
 
-            #input-container > * > input {
+            #input-container > input {
                 width: 100%;
                 height: 3rem;
-                margin-top: 1rem;
             }
         `
     ];
@@ -308,6 +308,7 @@ export class MapboxNavigation extends LitElement {
 
         for (let i = 1; i < this.coords.length - 2; i += 1) {
             intermediatePointInputs.push(html`
+                <mwc-icon icon="trip_origin"></mwc-icon>
                 <input
                     type="text"
                     placeholder=${`Intermediate Point ${i}`}
@@ -315,6 +316,7 @@ export class MapboxNavigation extends LitElement {
                     @focus=${this._inputFocusHandler(i)}
                     inputmode="none"
                 >
+                <span></span>
             `);
         }
 
@@ -329,25 +331,26 @@ export class MapboxNavigation extends LitElement {
                 <!-- <h3>Directions</h3> -->
                 <!-- <p>Get cycling directions in Charlotte.</p> -->
                 <div id="input-container">
-                    <div>
-                        <input
-                            type="text"
-                            placeholder="Starting point"
-                            value=${`${this.coords[0] || ""}`}
-                            @focus=${this._inputFocusHandler(0)}
-                            inputmode="none"
-                            >
-                    </div>
+                    <mwc-icon icon="trip_origin"></mwc-icon>
+                    <input
+                        type="text"
+                        placeholder="Starting point"
+                        value=${`${this.coords[0] || ""}`}
+                        @focus=${this._inputFocusHandler(0)}
+                        inputmode="none"
+                    >
+                    <span></span>
+                        
                     ${this._getIntermediatePointsTemplate()}
-                    <div>
-                        <input
-                            type="text"
-                            placeholder="Destination"
-                            value=${`${this.coords[this.coords.length - 1] || ""}`}
-                            @focus=${this._inputFocusHandler(this.coords.length - 1)}
-                            inputmode="none"
-                            >
-                    </div>
+                    <mwc-icon icon="sports_score"></mwc-icon>
+                    <input
+                        type="text"
+                        placeholder="Destination"
+                        value=${`${this.coords[this.coords.length - 1] || ""}`}
+                        @focus=${this._inputFocusHandler(this.coords.length - 1)}
+                        inputmode="none"
+                    >
+                    <span></span>
                 </div>
                 
                 <div id="choose-location-widget" class=${classMap({ visible: this._showChooseLocationWidget })}>

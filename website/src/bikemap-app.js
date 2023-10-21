@@ -358,7 +358,6 @@ export class BikeMapApp extends LitElement {
 
             #navigation-widget {
                 position: absolute;
-                display: block;
                 bottom: -40vh;
                 left: 0;
                 right: 0;
@@ -367,10 +366,24 @@ export class BikeMapApp extends LitElement {
                 z-index: 100;
                 background: white;
                 transition: all .5s ease;
+                display: flex;
+                flex-direction: column;
             }
 
             #navigation-widget.visible {
                 bottom: 0;
+            }
+
+            button.nostyle {
+                --mdc-icon-size: 2rem;
+                border: none;
+                background: unset;
+                padding: 0;
+            }
+
+            #close-nav-button {
+                display: flex;
+                align-self: flex-end;
             }
         `
     ];
@@ -391,6 +404,9 @@ export class BikeMapApp extends LitElement {
             </button>
             
             <div id="navigation-widget" class=${classMap({ visible: this._showDirectionsWidget })}>
+                <button id="close-nav-button" class="nostyle">
+                    <mwc-icon icon="close"></mwc-icon>
+                </button>
                 <mapbox-navigation></mapbox-navigation>
             </div>
 
