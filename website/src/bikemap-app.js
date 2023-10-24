@@ -36,6 +36,8 @@ export class BikeMapApp extends LitElement {
         map.on('load', () => {
             this._mapProvider.setValue(map);
 
+            map.addControl(new mapboxgl.NavigationControl());
+
             map.addSource('cycling-data', {
                 type: 'geojson',
                 data: 'https://data.bikemap.seanerice.dev/export.geojson'
@@ -381,13 +383,6 @@ export class BikeMapApp extends LitElement {
 
             #navigation-widget.visible {
                 bottom: 0;
-            }
-
-            button.nostyle {
-                --mdc-icon-size: 2rem;
-                border: none;
-                background: unset;
-                padding: 0;
             }
 
             #close-nav-button {

@@ -22,4 +22,11 @@ export const baseStyles = css`
     .height-2 {
         box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
     }
+
+    button.nostyle {
+        --mdc-icon-size: 2rem;
+        border: none;
+        background: unset;
+        padding: 0;
+    }
 `;
