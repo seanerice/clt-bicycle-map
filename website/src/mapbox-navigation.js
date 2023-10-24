@@ -30,7 +30,8 @@ export class MapboxNavigation extends LitElement {
             coords: { type: Array },
             coordsDisplayText: { type: String },
             _showChooseLocationWidget: { type: Boolean },
-            _searchResults: { type: Array }
+            _searchResults: { type: Array },
+            _locationSearchTerm: { type: String }
         };
     }
 
@@ -57,6 +58,10 @@ export class MapboxNavigation extends LitElement {
                                 essential: true
                             });
                             // todo: add reverse geocoding to get address
+                            this.geocodingSearch(...coord).then(res => {
+                                const displayText = res.features[0].place_name;
+                                this._setCoord(coord, displayText);
+                            });
                             this._setCoord(coord);
                         },
                         (err) => {
@@ -65,16 +70,19 @@ export class MapboxNavigation extends LitElement {
                     );
                     this._showChooseLocationWidget = false;
                     this._searchResults = null;
+                    this._locationSearchTerm = '';
                     break;
                 case 'select-location-on-map':
                     this._placePointMode = true;
                     this._showChooseLocationWidget = false;
                     this._searchResults = null;
+                    this._locationSearchTerm = '';
                     break;
                 case 'searched-location':
                     this._setCoord(options.searchResult.center, options.searchResult.place_name);
                     this._showChooseLocationWidget = false;
                     this._searchResults = null;
+                    this._locationSearchTerm = '';
                 default:
                     break;
             }
@@ -82,7 +90,7 @@ export class MapboxNavigation extends LitElement {
     }
 
     _inputFocusHandler(focusedIndex) {
-        return (event) => {
+        return () => {
             this._focusedIndex = focusedIndex;
             this._showChooseLocationWidget = true;
         }
@@ -198,11 +206,15 @@ export class MapboxNavigation extends LitElement {
 
         map.on('click', (event) => {
             if (this._placePointMode) {
-                const coords = Object.keys(event.lngLat)
+                const coord = Object.keys(event.lngLat)
                     .map((key) => event.lngLat[key]);
                 
                 // todo: add reverse geocoding to get address
-                this._setCoord(coords);
+                this.geocodingSearch(...coord).then(res => {
+                    const displayText = res.features[0].place_name;
+                    this._setCoord(coord, displayText);
+                });
+                this._setCoord(coord);
                 this._placePointMode = false;
             }
         });
@@ -256,10 +268,21 @@ export class MapboxNavigation extends LitElement {
         }
     }
 
-    async _handleLocationSearchInput(event) {
-        const locationSearchInput = this.shadowRoot.getElementById('location-search-input');
-        const search = locationSearchInput.value;
-        const geocodingApiUrl = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(search)}.json`);
+    async geocodingSearch(...args) {
+        if (args.length === 0 || args.length > 2) {
+            throw new Error("args array may only have length of 1 or 2.");
+        }
+
+        let geocodingApiUrl;
+
+        if (args.length === 1) {
+            geocodingApiUrl = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(args[0])}.json`);
+        }
+
+        if (args.length === 2 && args.every(arg => Number(arg))) {
+            geocodingApiUrl = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${args.map(arg => Number(arg)).join(',')}.json`);
+        }
+        
         geocodingApiUrl.searchParams.set('access_token', mapboxgl.accessToken);
         geocodingApiUrl.searchParams.set('types','place,neighborhood,address,poi');
         geocodingApiUrl.searchParams.set('bbox', '-81.06355,35.00332,-80.52998,35.41154');
@@ -268,7 +291,25 @@ export class MapboxNavigation extends LitElement {
             { method: 'get' }
         );
         const data = await res.json();
+        return data;
+    }
+
+    async searchForLocation() {
+        const locationSearchInput = this.shadowRoot.getElementById('location-search-input');
+        const search = locationSearchInput.value;
+        this._locationSearchTerm = search;
+        const data = await this.geocodingSearch(search);
         this._searchResults = data.features;
+    }
+
+    async _handleLocationSearchButton() {
+        await this.searchForLocation();
+    }
+
+    async _handleLocationSearchKeyDown(event) {
+        if (event.keyCode === 13) {
+            await this.searchForLocation();
+        }
     }
 
     static styles = [
@@ -311,6 +352,9 @@ export class MapboxNavigation extends LitElement {
                 background-color: white;
                 z-index: 201;
                 transition: all .5s ease;
+                display: flex;
+                flex-direction: column;
+                align-items: stretch;
             }
 
             #choose-location-widget.visible {
@@ -331,6 +375,31 @@ export class MapboxNavigation extends LitElement {
             #input-container > input {
                 width: 100%;
                 height: 3rem;
+            }
+
+            .search-bar {
+                height: 3rem;
+                position: relative;
+            }
+
+            .search-bar input {
+                background-color: white;
+                border-radius: 1rem;
+                height: 100%;
+                width: 100%;
+                box-sizing: border-box;
+                position: relative;
+                padding-left: 1rem;
+                padding-right: 3rem;
+                outline: 0;
+                text-overflow: ellipsis;
+            }
+
+            .search-bar button {
+                height: 100%;
+                right: 2rem;
+                position: absolute;
+                top: 0;
             }
         `
     ];
@@ -410,11 +479,15 @@ export class MapboxNavigation extends LitElement {
                 
                 <!-- todo: refactor this into its own component -->
                 <div id="choose-location-widget" class=${classMap({ visible: this._showChooseLocationWidget })}>
-                    <input
-                        id="location-search-input"
-                        type="text"
-                        placeholder="Search..."
-                        @input=${this._handleLocationSearchInput}>
+                    <div class="search-bar menu-item">
+                        <input
+                            id="location-search-input"
+                            type="text"
+                            placeholder="Search..."
+                            .value=${this._locationSearchTerm || ''}
+                            @keydown=${this._handleLocationSearchKeyDown}>
+                        <button class="nostyle" @click=${this._handleLocationSearchButton}><mwc-icon icon="search"></mwc-icon></button>
+                    </div>
                     ${this._searchResultsTemplate()}
                     ${this._searchResults ? html`<hr>` : nothing}
                     <a class="menu-item" @click=${this._menuClickHandler('my-location')}>
