@@ -290,8 +290,8 @@ export class BikeMapApp extends LitElement {
             .menu {
                 display: block;
                 position: absolute;
-                left: -60vw;
-                width: 60vw;
+                left: -340px;
+                width: 320px;
                 height: 100%;
                 z-index: 200;
                 background: white;
@@ -318,7 +318,7 @@ export class BikeMapApp extends LitElement {
             }
 
             #menu-checkbox:checked ~ label #menu-button, #menu-checkbox:checked ~ label #menu-cancel {
-                left: 61vw;
+                left: 330px;
             }
 
             #menu-checkbox:checked ~ .menu {
@@ -342,12 +342,18 @@ export class BikeMapApp extends LitElement {
 
             .menu-item {
                 margin: 0 1rem;
-                display: inline-block
             }
 
-            .menu > h1 {
+            .menu-header {
+                display: inline-block;
+                background: lightgray;
+                width: 100%;
+            }
+
+            .menu-header > h1 {
                 margin-left: 1rem;
                 margin-right: 1rem;
+                font-size: 1.5em;
             }
 
             #directions-button {
@@ -419,7 +425,9 @@ export class BikeMapApp extends LitElement {
             </div>
 
             <div class="menu height-1">
-                <h1>Charlotte Bike Map</h1>
+                <div class="menu-header">
+                    <h1>Charlotte Bike Map</h1>
+                </div>
                 <div class="menu-item">
                     <layer-widget></layer-widget>
                 </div>
