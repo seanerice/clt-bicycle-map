@@ -93,6 +93,7 @@ export class MapboxNavigation extends LitElement {
         return () => {
             this._focusedIndex = focusedIndex;
             this._showChooseLocationWidget = true;
+            this.shadowRoot.getElementById('location-search-input').focus();
         }
     }
 
