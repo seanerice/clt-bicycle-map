@@ -21,13 +21,16 @@ export class MapboxNavigation extends LitElement {
         super();
 
         this.coords = [null, null];
+        this.coordsDisplayText = [null, null];
     }
 
     static get properties() {
         return {
             interactionState: { type: String },
-            _showChooseLocationWidget: { type: Boolean }
-
+            coords: { type: Array },
+            coordsDisplayText: { type: String },
+            _showChooseLocationWidget: { type: Boolean },
+            _searchResults: { type: Array }
         };
     }
 
@@ -35,7 +38,7 @@ export class MapboxNavigation extends LitElement {
         return this._mapConsumer.value;
     }
 
-    _menuClickHandler(menuItemType) {
+    _menuClickHandler(menuItemType, options) {
         return (event) => {
             this._placePointMode = false;
 
@@ -53,6 +56,7 @@ export class MapboxNavigation extends LitElement {
                                 duration: 2000,
                                 essential: true
                             });
+                            // todo: add reverse geocoding to get address
                             this._setCoord(coord);
                         },
                         (err) => {
@@ -60,11 +64,17 @@ export class MapboxNavigation extends LitElement {
                         }
                     );
                     this._showChooseLocationWidget = false;
+                    this._searchResults = null;
                     break;
                 case 'select-location-on-map':
                     this._placePointMode = true;
                     this._showChooseLocationWidget = false;
+                    this._searchResults = null;
                     break;
+                case 'searched-location':
+                    this._setCoord(options.searchResult.center, options.searchResult.place_name);
+                    this._showChooseLocationWidget = false;
+                    this._searchResults = null;
                 default:
                     break;
             }
@@ -165,7 +175,7 @@ export class MapboxNavigation extends LitElement {
         }
     }
 
-    _setCoord(coord) {
+    _setCoord(coord, displayText) {
         this.coords[this._focusedIndex] = coord;
         this.coords = [...this.coords];
 
@@ -174,6 +184,12 @@ export class MapboxNavigation extends LitElement {
         if (this.coords.every(coord => !!coord)) {
             this.getRoute(...this.coords);
         }
+
+        if (!displayText)
+            return;
+
+        this.coordsDisplayText[this._focusedIndex] = displayText;
+        this.coordsDisplayText = [...this.coordsDisplayText];
     }
 
     _mapChanged(map) {
@@ -185,6 +201,7 @@ export class MapboxNavigation extends LitElement {
                 const coords = Object.keys(event.lngLat)
                     .map((key) => event.lngLat[key]);
                 
+                // todo: add reverse geocoding to get address
                 this._setCoord(coords);
                 this._placePointMode = false;
             }
@@ -237,6 +254,21 @@ export class MapboxNavigation extends LitElement {
                 }
             });
         }
+    }
+
+    async _handleLocationSearchInput(event) {
+        const locationSearchInput = this.shadowRoot.getElementById('location-search-input');
+        const search = locationSearchInput.value;
+        const geocodingApiUrl = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(search)}.json`);
+        geocodingApiUrl.searchParams.set('access_token', mapboxgl.accessToken);
+        geocodingApiUrl.searchParams.set('types','place,neighborhood,address,poi');
+        geocodingApiUrl.searchParams.set('bbox', '-81.06355,35.00332,-80.52998,35.41154');
+        const res = await fetch(
+            geocodingApiUrl,
+            { method: 'get' }
+        );
+        const data = await res.json();
+        this._searchResults = data.features;
     }
 
     static styles = [
@@ -325,6 +357,27 @@ export class MapboxNavigation extends LitElement {
         return intermediatePointInputs;
     }
 
+    _searchResultsTemplate() {
+        if (!this._searchResults) {
+            return nothing;
+        }
+
+        if (this._searchResults.length <= 0) {
+            return html`
+                <p class="menu-item">No Results</p>`;
+        }
+
+        return this._searchResults.map(searchResult => {
+            return html`
+                <a class="menu-item" @click=${this._menuClickHandler('searched-location', { searchResult })}>
+                    <mwc-icon icon="location_on"></mwc-icon>
+                    ${searchResult.text}
+                    ${searchResult.place_name}
+                </a>
+            `;
+        });
+    }
+
     render() {
         if (!this._map)
             return nothing;
@@ -337,7 +390,7 @@ export class MapboxNavigation extends LitElement {
                     <input
                         type="text"
                         placeholder="Starting point"
-                        value=${`${this.coords[0] || ""}`}
+                        value=${`${this.coordsDisplayText[0] || this.coords[0] || ""}`}
                         @focus=${this._inputFocusHandler(0)}
                         inputmode="none"
                     >
@@ -348,14 +401,22 @@ export class MapboxNavigation extends LitElement {
                     <input
                         type="text"
                         placeholder="Destination"
-                        value=${`${this.coords[this.coords.length - 1] || ""}`}
+                        value=${`${this.coordsDisplayText[this.coordsDisplayText.length - 1] || this.coords[this.coords.length - 1] || ""}`}
                         @focus=${this._inputFocusHandler(this.coords.length - 1)}
                         inputmode="none"
                     >
                     <span></span>
                 </div>
                 
+                <!-- todo: refactor this into its own component -->
                 <div id="choose-location-widget" class=${classMap({ visible: this._showChooseLocationWidget })}>
+                    <input
+                        id="location-search-input"
+                        type="text"
+                        placeholder="Search..."
+                        @input=${this._handleLocationSearchInput}>
+                    ${this._searchResultsTemplate()}
+                    ${this._searchResults ? html`<hr>` : nothing}
                     <a class="menu-item" @click=${this._menuClickHandler('my-location')}>
                         <mwc-icon icon="my_location"></mwc-icon>
                         My Location
