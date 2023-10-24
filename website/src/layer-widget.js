@@ -79,24 +79,6 @@ export class LayerWidget extends LitElement {
             ['!=', ['get', 'cyclewayLeft'], 'no']
         ]
 
-        /**
-         *  ['==', ['get', 'cyclewayRight'], 'track'],
-            roadwayPalette.cycleTrack,
-            ['all',
-                ['==', ['get', 'cyclewayRight'], 'lane'],
-                ['has', 'cyclewayRightBuffer'],
-            ],
-            roadwayPalette.bufferedLane,
-            ['==', ['get', 'cyclewayRight'], 'lane'],
-            roadwayPalette.lane,
-            ['==', ['get', 'cyclewayRight'], 'share_busway'],
-            roadwayPalette.shareBusway,
-            ['==', ['get', 'cyclewayRight'], 'shared_lane'],
-            roadwayPalette.sharedLane,
-            ['==', ['get', 'cyclewayRight'], 'shoulder'],
-            roadwayPalette.shoulder,
-        */
-
         if (cycletracks === false) {
             cyclewayRightFilters.push(['!=', ['get', 'cyclewayRight'], 'track']);
             cyclewayLeftFilters.push(['!=', ['get', 'cyclewayLeft'], 'track']);
@@ -328,39 +310,39 @@ export class LayerWidget extends LitElement {
             <div>
                 <h3>Layers</h3>
                 <ser-checkbox id="routes" label="Routes" .checked=${true}>
-                    <ser-checkbox id="greenway-routes" .checked=${true}>
-                        <label slot="label"><span class="legend route greenway-route-line"></span>Greenway Routes</label>
+                    <ser-checkbox id="greenway-routes" label="Greenway Routes" .checked=${true}>
+                        <span slot="pre-label" class="legend route greenway-route-line"></span>
                     </ser-checkbox>
-                    <ser-checkbox id="signed-routes" .checked=${true}>
-                        <label slot="label"><span class="legend route signed-route-line"></span>Signed Routes</label>
+                    <ser-checkbox id="signed-routes" label="Signed Routes" .checked=${true}>
+                        <span slot="pre-label" class="legend route signed-route-line"></span>
                     </ser-checkbox>
-                    <ser-checkbox id="suggested-routes" .checked=${true}>
-                        <label slot="label"><span class="legend route suggested-route-line"></span>Suggested Routes</label>
+                    <ser-checkbox id="suggested-routes" label="Suggested Routes" .checked=${true}>
+                        <span slot="pre-label" class="legend route suggested-route-line"></span>
                     </ser-checkbox>
                 </ser-checkbox>
                 <ser-checkbox id="bike-lanes" label="Bike Lanes" .checked=${true}>
-                    <ser-checkbox id="cycletrack-lanes" .checked=${true}>
-                        <label slot="label"><span class="legend path cycletrack-line"></span>Cycle Track</label>
+                    <ser-checkbox id="cycletrack-lanes" label="Cycle Track" .checked=${true}>
+                        <span slot="pre-label" class="legend path cycletrack-line"></span>
                     </ser-checkbox>
-                    <ser-checkbox id="buffered-lanes" .checked=${true}>
-                        <label slot="label"><span class="legend path buffered-lane-line"></span>Buffered Lane</label>
+                    <ser-checkbox id="buffered-lanes" label="Buffered Lane" .checked=${true}>
+                        <span slot="pre-label" class="legend path buffered-lane-line"></span>
                     </ser-checkbox>
-                    <ser-checkbox id="standard-lanes" .checked=${true}>
-                        <label slot="label"><span class="legend path lane-line"></span>Standard Bike Lane</label>
+                    <ser-checkbox id="standard-lanes" label="Standard Bike Lane" .checked=${true}>
+                        <span slot="pre-label" class="legend path lane-line"></span>
                     </ser-checkbox>
-                    <ser-checkbox id="share-busway-lanes" .checked=${true}>
-                        <label slot="label"><span class="legend path share-busway-line"></span>Shared Bus & Bike Lane</label>
+                    <ser-checkbox id="share-busway-lanes" label="Shared Bus & Bike Lane" .checked=${true}>
+                        <span slot="pre-label" class="legend path share-busway-line"></span>
                     </ser-checkbox>
-                    <ser-checkbox id="shoulder-lanes" .checked=${true}>
-                        <label slot="label"><span class="legend path shoulder-line"></span>Shoulder</label>
+                    <ser-checkbox id="shoulder-lanes" label="Shoulder" .checked=${true}>
+                        <span slot="pre-label" class="legend path shoulder-line"></span>
                     </ser-checkbox>
                 </ser-checkbox>
                 <ser-checkbox id="cycle-paths" label="Cycle Paths" .checked=${true}>
-                    <ser-checkbox id="allowed-cycle-paths" .checked=${true}>
-                        <label slot="label"><span class="legend path allowed-path-line"></span>Allowed</label>
+                    <ser-checkbox id="allowed-cycle-paths" label="Allowed" .checked=${true}>
+                        <span slot="pre-label" class="legend path allowed-path-line"></span>
                     </ser-checkbox>
-                    <ser-checkbox id="designated-cycle-paths" .checked=${true}>
-                        <label slot="label"><span class="legend path designated-path-line"></span>Designated</label>
+                    <ser-checkbox id="designated-cycle-paths" label="Designated" .checked=${true}>
+                        <span slot="pre-label" class="legend path designated-path-line"></span>
                     </ser-checkbox>
                 </ser-checkbox>
             </div>
