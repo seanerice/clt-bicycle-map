@@ -453,8 +453,6 @@ export class MapboxNavigation extends LitElement {
             return nothing;
 
         return html`
-                <!-- <h3>Directions</h3> -->
-                <!-- <p>Get cycling directions in Charlotte.</p> -->
                 <div id="input-container">
                     <mwc-icon icon="trip_origin"></mwc-icon>
                     <input
