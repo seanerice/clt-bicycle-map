@@ -9,6 +9,7 @@ import { bicycleFacilityRatingColor, roadwayPalette } from './colors.js';
 import { baseStyles } from "./styles";
 import './mwc-icon.js';
 import { classMap } from 'lit/directives/class-map.js';
+import './location-search-menu.js';
 
 export class BikeMapApp extends LitElement {
     _mapProvider = new ContextProvider(this, { context: mapContext });
@@ -287,13 +288,13 @@ export class BikeMapApp extends LitElement {
                 display: none;
             }
 
-            .menu {
+            .menu-bar {
                 display: block;
                 position: absolute;
                 left: -340px;
                 width: 320px;
                 height: 100%;
-                z-index: 200;
+                z-index: 201;
                 background: white;
                 transition: all .5s ease;
             }
@@ -308,8 +309,8 @@ export class BikeMapApp extends LitElement {
                 justify-content: center;
                 align-items: center;
                 padding: 0.3rem;
-                position: absolute;
-                z-index: 100;
+                position: fixed;
+                z-index: 201;
                 left: 1vw;
                 top: 1vh;
                 transition: all .5s ease;
@@ -321,7 +322,7 @@ export class BikeMapApp extends LitElement {
                 left: 330px;
             }
 
-            #menu-checkbox:checked ~ .menu {
+            #menu-checkbox:checked ~ .menu-bar {
                 left: 0;
             }
 
@@ -374,7 +375,7 @@ export class BikeMapApp extends LitElement {
             }
 
             #navigation-widget {
-                position: absolute;
+                position: fixed;
                 bottom: -40vh;
                 left: 0;
                 right: 0;
@@ -395,8 +396,33 @@ export class BikeMapApp extends LitElement {
                 display: flex;
                 align-self: flex-end;
             }
+
+
+            .menu-scrim {
+                display: none;
+                position: fixed;
+                left: 0;
+                right: 0;
+                top: 0;
+                bottom: 0;
+                z-index: 200;
+            }
+
+            #menu-checkbox:checked ~ .menu-scrim {
+                display: block;
+                background: rgba(0, 0, 0, 0.5);
+            }
         `
     ];
+
+    _handleLocationSelected(event) {
+        const { coord, displayText } = event.detail;
+        this.shadowRoot.getElementById('navigation')._setCoord(coord, displayText);
+    }
+
+    _handleLocationInputFocused(event) {
+        this.shadowRoot.getElementById('location-search-menu').show();
+    }
 
     render() {
         return html`
@@ -421,17 +447,28 @@ export class BikeMapApp extends LitElement {
                 >
                     <mwc-icon icon="close"></mwc-icon>
                 </button>
-                <mapbox-navigation></mapbox-navigation>
+                <mapbox-navigation id="navigation"
+                    @location-input-focused=${this._handleLocationInputFocused}
+                ></mapbox-navigation>
+            </div>
+            
+            <div class="menu-scrim"></div>
+            <div class="menu-bar height-1">
+                <div class="menu">
+                    <div class="menu-header">
+                        <h1>Charlotte Bike Map</h1>
+                    </div>
+                    <div class="menu-item">
+                        <layer-widget></layer-widget>
+                    </div>    
+                </div>
             </div>
 
-            <div class="menu height-1">
-                <div class="menu-header">
-                    <h1>Charlotte Bike Map</h1>
-                </div>
-                <div class="menu-item">
-                    <layer-widget></layer-widget>
-                </div>
-            </div>
+            <location-search-menu
+                id="location-search-menu"
+                @location-selected=${this._handleLocationSelected}
+            ></location-search-menu>
+
             <div id="map"></div>
         `;
     }
