@@ -298,6 +298,10 @@ export class LayerWidget extends LitElement {
                 width: 12px;
                 height: 5px;
             }
+
+            ser-checkbox > ser-checkbox {
+                margin-left: 1rem;
+            }
         `
     ];
 

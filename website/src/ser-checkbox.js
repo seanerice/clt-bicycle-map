@@ -86,7 +86,6 @@ export class SerCheckbox extends LitElement {
         css`
             :host {
                 display: block;
-                margin-left: 1rem;
             }
         `
     ];

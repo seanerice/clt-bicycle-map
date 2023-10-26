@@ -1,19 +1,17 @@
 
-import { LitElement, html, css, nothing } from 'lit';
 import { ContextConsumer } from '@lit/context';
+import { LitElement, html, css, nothing } from 'lit';
 import { mapContext } from './mapContext';
 import mapboxgl from 'mapbox-gl';
 import { baseStyles } from './styles';
 import './mwc-icon.js';
-import { classMap } from 'lit-html/directives/class-map.js';
 
 export class MapboxNavigation extends LitElement {
     _mapConsumer = new ContextConsumer(
         this,
         {
             context: mapContext,
-            subscribe: true,
-            callback: (v) => this._mapChanged(v)
+            subscribe: true
         }
     );
 
@@ -29,9 +27,6 @@ export class MapboxNavigation extends LitElement {
             interactionState: { type: String },
             coords: { type: Array },
             coordsDisplayText: { type: String },
-            _showChooseLocationWidget: { type: Boolean },
-            _searchResults: { type: Array },
-            _locationSearchTerm: { type: String }
         };
     }
 
@@ -39,60 +34,14 @@ export class MapboxNavigation extends LitElement {
         return this._mapConsumer.value;
     }
 
-    _menuClickHandler(menuItemType, options) {
-        return (event) => {
-            this._placePointMode = false;
-
-            switch (menuItemType) {
-                case 'my-location':
-                    navigator.geolocation.getCurrentPosition(
-                        (pos) => {
-                            const coord = [
-                                pos.coords.longitude,
-                                pos.coords.latitude
-                            ];
-                            this._map.flyTo({
-                                center: coord,
-                                zoom: 15,
-                                duration: 2000,
-                                essential: true
-                            });
-                            // todo: add reverse geocoding to get address
-                            this.geocodingSearch(...coord).then(res => {
-                                const displayText = res.features[0].place_name;
-                                this._setCoord(coord, displayText);
-                            });
-                            this._setCoord(coord);
-                        },
-                        (err) => {
-                            console.error(err);
-                        }
-                    );
-                    this._showChooseLocationWidget = false;
-                    this._searchResults = null;
-                    this._locationSearchTerm = '';
-                    break;
-                case 'select-location-on-map':
-                    this._placePointMode = true;
-                    this._showChooseLocationWidget = false;
-                    this._searchResults = null;
-                    this._locationSearchTerm = '';
-                    break;
-                case 'searched-location':
-                    this._setCoord(options.searchResult.center, options.searchResult.place_name);
-                    this._showChooseLocationWidget = false;
-                    this._searchResults = null;
-                    this._locationSearchTerm = '';
-                default:
-                    break;
-            }
-        }
-    }
-
     _inputFocusHandler(focusedIndex) {
         return () => {
             this._focusedIndex = focusedIndex;
-            this._showChooseLocationWidget = true;
+            this.dispatchEvent(
+                new CustomEvent('location-input-focused', {
+                    bubbles: true
+                })
+            )
         }
     }
 
@@ -200,26 +149,6 @@ export class MapboxNavigation extends LitElement {
         this.coordsDisplayText = [...this.coordsDisplayText];
     }
 
-    _mapChanged(map) {
-        if (!map)
-            return;
-
-        map.on('click', (event) => {
-            if (this._placePointMode) {
-                const coord = Object.keys(event.lngLat)
-                    .map((key) => event.lngLat[key]);
-                
-                // todo: add reverse geocoding to get address
-                this.geocodingSearch(...coord).then(res => {
-                    const displayText = res.features[0].place_name;
-                    this._setCoord(coord, displayText);
-                });
-                this._setCoord(coord);
-                this._placePointMode = false;
-            }
-        });
-    }
-
     async getRoute(...coords) {
         const map = this._map;
         const coordUrlParam = coords.map(coord => `${coord[0]},${coord[1]}`)
@@ -268,50 +197,6 @@ export class MapboxNavigation extends LitElement {
         }
     }
 
-    async geocodingSearch(...args) {
-        if (args.length === 0 || args.length > 2) {
-            throw new Error("args array may only have length of 1 or 2.");
-        }
-
-        let geocodingApiUrl;
-
-        if (args.length === 1) {
-            geocodingApiUrl = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(args[0])}.json`);
-        }
-
-        if (args.length === 2 && args.every(arg => Number(arg))) {
-            geocodingApiUrl = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${args.map(arg => Number(arg)).join(',')}.json`);
-        }
-        
-        geocodingApiUrl.searchParams.set('access_token', mapboxgl.accessToken);
-        geocodingApiUrl.searchParams.set('types','place,neighborhood,address,poi');
-        geocodingApiUrl.searchParams.set('bbox', '-81.06355,35.00332,-80.52998,35.41154');
-        const res = await fetch(
-            geocodingApiUrl,
-            { method: 'get' }
-        );
-        const data = await res.json();
-        return data;
-    }
-
-    async searchForLocation() {
-        const locationSearchInput = this.shadowRoot.getElementById('location-search-input');
-        const search = locationSearchInput.value;
-        this._locationSearchTerm = search;
-        const data = await this.geocodingSearch(search);
-        this._searchResults = data.features;
-    }
-
-    async _handleLocationSearchButton() {
-        await this.searchForLocation();
-    }
-
-    async _handleLocationSearchKeyDown(event) {
-        if (event.keyCode === 13) {
-            await this.searchForLocation();
-        }
-    }
-
     static styles = [
         baseStyles,
         css`
@@ -321,44 +206,6 @@ export class MapboxNavigation extends LitElement {
 
             button {
                 margin-bottom: 0.4rem;
-            }
-
-            .menu-item {
-                display: block;
-                padding: 1rem;
-            }
-
-            .menu-item > * {
-                display: inline-block;
-                vertical-align: middle;
-            }
-
-            .menu-item > mwc-icon {
-                margin-right: 1rem;                
-            }
-
-            .menu-item:hover {
-                background-color: lightgray;
-            }
-
-            #choose-location-widget {
-                position: fixed;
-                height: 100vh;
-                height: 100dvh;
-                bottom: -100vh;
-                bottom: -100dvh;
-                left: 0;
-                right: 0;
-                background-color: white;
-                z-index: 201;
-                transition: all .5s ease;
-                display: flex;
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            #choose-location-widget.visible {
-                bottom: 0;
             }
 
             #input-container {
@@ -375,31 +222,6 @@ export class MapboxNavigation extends LitElement {
             #input-container > input {
                 width: 100%;
                 height: 3rem;
-            }
-
-            .search-bar {
-                height: 3rem;
-                position: relative;
-            }
-
-            .search-bar input {
-                background-color: white;
-                border-radius: 1rem;
-                height: 100%;
-                width: 100%;
-                box-sizing: border-box;
-                position: relative;
-                padding-left: 1rem;
-                padding-right: 3rem;
-                outline: 0;
-                text-overflow: ellipsis;
-            }
-
-            .search-bar button {
-                height: 100%;
-                right: 2rem;
-                position: absolute;
-                top: 0;
             }
         `
     ];
@@ -426,79 +248,33 @@ export class MapboxNavigation extends LitElement {
         return intermediatePointInputs;
     }
 
-    _searchResultsTemplate() {
-        if (!this._searchResults) {
-            return nothing;
-        }
-
-        if (this._searchResults.length <= 0) {
-            return html`
-                <p class="menu-item">No Results</p>`;
-        }
-
-        return this._searchResults.map(searchResult => {
-            return html`
-                <a class="menu-item" @click=${this._menuClickHandler('searched-location', { searchResult })}>
-                    <mwc-icon icon="location_on"></mwc-icon>
-                    ${searchResult.text}
-                    ${searchResult.place_name}
-                </a>
-            `;
-        });
-    }
-
     render() {
         if (!this._map)
             return nothing;
 
         return html`
-                <!-- <h3>Directions</h3> -->
-                <!-- <p>Get cycling directions in Charlotte.</p> -->
-                <div id="input-container">
-                    <mwc-icon icon="trip_origin"></mwc-icon>
-                    <input
-                        type="text"
-                        placeholder="Starting point"
-                        value=${`${this.coordsDisplayText[0] || this.coords[0] || ""}`}
-                        @focus=${this._inputFocusHandler(0)}
-                        inputmode="none"
-                    >
-                    <span></span>
-                        
-                    ${this._getIntermediatePointsTemplate()}
-                    <mwc-icon icon="sports_score"></mwc-icon>
-                    <input
-                        type="text"
-                        placeholder="Destination"
-                        value=${`${this.coordsDisplayText[this.coordsDisplayText.length - 1] || this.coords[this.coords.length - 1] || ""}`}
-                        @focus=${this._inputFocusHandler(this.coords.length - 1)}
-                        inputmode="none"
-                    >
-                    <span></span>
-                </div>
-                
-                <!-- todo: refactor this into its own component -->
-                <div id="choose-location-widget" class=${classMap({ visible: this._showChooseLocationWidget })}>
-                    <div class="search-bar menu-item">
-                        <input
-                            id="location-search-input"
-                            type="text"
-                            placeholder="Search..."
-                            .value=${this._locationSearchTerm || ''}
-                            @keydown=${this._handleLocationSearchKeyDown}>
-                        <button class="nostyle" @click=${this._handleLocationSearchButton}><mwc-icon icon="search"></mwc-icon></button>
-                    </div>
-                    ${this._searchResultsTemplate()}
-                    ${this._searchResults ? html`<hr>` : nothing}
-                    <a class="menu-item" @click=${this._menuClickHandler('my-location')}>
-                        <mwc-icon icon="my_location"></mwc-icon>
-                        My Location
-                    </a>
-                    <a class="menu-item" @click=${this._menuClickHandler('select-location-on-map')}>
-                        <mwc-icon icon="location_on"></mwc-icon>
-                        Choose on the Map
-                    </a>
-                </div>
+            <div id="input-container">
+                <mwc-icon icon="trip_origin"></mwc-icon>
+                <input
+                    type="text"
+                    placeholder="Starting point"
+                    value=${`${this.coordsDisplayText[0] || this.coords[0] || ""}`}
+                    @focus=${this._inputFocusHandler(0)}
+                    inputmode="none"
+                >
+                <span></span>
+                    
+                ${this._getIntermediatePointsTemplate()}
+                <mwc-icon icon="sports_score"></mwc-icon>
+                <input
+                    type="text"
+                    placeholder="Destination"
+                    value=${`${this.coordsDisplayText[this.coordsDisplayText.length - 1] || this.coords[this.coords.length - 1] || ""}`}
+                    @focus=${this._inputFocusHandler(this.coords.length - 1)}
+                    inputmode="none"
+                >
+                <span></span>
+            </div>
         `;
     }
 }
