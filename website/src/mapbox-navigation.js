@@ -4,7 +4,9 @@ import { LitElement, html, css, nothing } from 'lit';
 import { mapContext } from './mapContext';
 import mapboxgl from 'mapbox-gl';
 import { baseStyles } from './styles';
+import { classMap } from 'lit/directives/class-map.js';
 import './mwc-icon.js';
+
 
 export class MapboxNavigation extends LitElement {
     _mapConsumer = new ContextConsumer(
@@ -27,7 +29,16 @@ export class MapboxNavigation extends LitElement {
             interactionState: { type: String },
             coords: { type: Array },
             coordsDisplayText: { type: String },
+            visible: { type: Boolean }
         };
+    }
+
+    show() {
+        this.visible = true;
+    }
+
+    hide() {
+        this.visible = false;
     }
 
     get _map() {
@@ -133,6 +144,12 @@ export class MapboxNavigation extends LitElement {
     }
 
     _setCoord(coord, displayText) {
+        if (this._focusedIndex === null || this._focusedIndex === undefined)
+            this._focusedIndex = this.coords.length - 1;
+
+        if (!this.visible)
+            this.show();
+
         this.coords[this._focusedIndex] = coord;
         this.coords = [...this.coords];
 
@@ -223,6 +240,30 @@ export class MapboxNavigation extends LitElement {
                 width: 100%;
                 height: 3rem;
             }
+
+            #navigation-widget {
+                position: fixed;
+                bottom: -40vh;
+                left: 0;
+                right: 0;
+                max-height: 40vh;
+                height: 40vh;
+                z-index: 100;
+                background: white;
+                transition: all .5s ease;
+                display: flex;
+                flex-direction: column;
+            }
+
+            #navigation-widget.visible {
+                bottom: 0;
+            }
+
+            #close-nav-button {
+                display: flex;
+                align-self: flex-end;
+            }
+
         `
     ];
 
@@ -253,28 +294,38 @@ export class MapboxNavigation extends LitElement {
             return nothing;
 
         return html`
-            <div id="input-container">
-                <mwc-icon icon="trip_origin"></mwc-icon>
-                <input
-                    type="text"
-                    placeholder="Starting point"
-                    value=${`${this.coordsDisplayText[0] || this.coords[0] || ""}`}
-                    @focus=${this._inputFocusHandler(0)}
-                    inputmode="none"
+            <div id="navigation-widget" class=${classMap({ visible: this.visible })}>
+                <button
+                    id="close-nav-button"
+                    class="nostyle"
+                    @click=${() => { this.hide(); }}
                 >
-                <span></span>
-                    
-                ${this._getIntermediatePointsTemplate()}
-                <mwc-icon icon="sports_score"></mwc-icon>
-                <input
-                    type="text"
-                    placeholder="Destination"
-                    value=${`${this.coordsDisplayText[this.coordsDisplayText.length - 1] || this.coords[this.coords.length - 1] || ""}`}
-                    @focus=${this._inputFocusHandler(this.coords.length - 1)}
-                    inputmode="none"
-                >
-                <span></span>
+                    <mwc-icon icon="close"></mwc-icon>
+                </button>
+                <div id="input-container">
+                    <mwc-icon icon="trip_origin"></mwc-icon>
+                    <input
+                        type="text"
+                        placeholder="Starting point"
+                        value=${`${this.coordsDisplayText[0] || this.coords[0] || ""}`}
+                        @focus=${this._inputFocusHandler(0)}
+                        inputmode="none"
+                    >
+                    <span></span>
+                        
+                    ${this._getIntermediatePointsTemplate()}
+                    <mwc-icon icon="sports_score"></mwc-icon>
+                    <input
+                        type="text"
+                        placeholder="Destination"
+                        value=${`${this.coordsDisplayText[this.coordsDisplayText.length - 1] || this.coords[this.coords.length - 1] || ""}`}
+                        @focus=${this._inputFocusHandler(this.coords.length - 1)}
+                        inputmode="none"
+                    >
+                    <span></span>
+                </div>
             </div>
+
         `;
     }
 }

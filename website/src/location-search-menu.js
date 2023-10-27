@@ -187,8 +187,12 @@ export class LocationSearchMenu extends LitElement {
             }
 
             .search-bar {
+                z-index: 100;
                 height: 3rem;
-                position: relative;
+                left: 60px;
+                top: 10px;
+                position: fixed;
+                transition: all .5s ease, z-index 0s ease;
             }
 
             .search-bar input {
@@ -211,6 +215,14 @@ export class LocationSearchMenu extends LitElement {
                 top: 0;
             }
 
+            .search-bar.show-in-menu {
+                z-index: 301;
+                left: 0;
+                right: 0;
+                display: block;
+                padding: 1rem;
+            }
+
             .menu-item {
                 display: block;
                 padding: 1rem;
@@ -227,6 +239,10 @@ export class LocationSearchMenu extends LitElement {
 
             .menu-item:hover {
                 background-color: lightgray;
+            }
+
+            .menu-padding {
+                height: 5rem;
             }
         `
     ];
@@ -254,16 +270,18 @@ export class LocationSearchMenu extends LitElement {
 
     render() {
         return html`
+            <div class="search-bar ${classMap({ 'show-in-menu': this._showChooseLocationWidget })}">
+                <input
+                    id="location-search-input"
+                    type="text"
+                    placeholder="Search..."
+                    .value=${this._locationSearchTerm || ''}
+                    @keydown=${this._handleLocationSearchKeyDown}
+                    @focus=${() => { this._showChooseLocationWidget = true; }}>
+                <button class="nostyle" @click=${this._handleLocationSearchButton}><mwc-icon icon="search"></mwc-icon></button>
+            </div>
             <div id="choose-location-widget" class=${classMap({ visible: this._showChooseLocationWidget })}>
-                <div class="search-bar menu-item">
-                    <input
-                        id="location-search-input"
-                        type="text"
-                        placeholder="Search..."
-                        .value=${this._locationSearchTerm || ''}
-                        @keydown=${this._handleLocationSearchKeyDown}>
-                    <button class="nostyle" @click=${this._handleLocationSearchButton}><mwc-icon icon="search"></mwc-icon></button>
-                </div>
+                <div class="menu-padding"></div>
                 ${this._searchResultsTemplate()}
                 ${this._searchResults ? html`<hr>` : nothing}
                 <a class="menu-item" @click=${this._menuClickHandler('my-location')}>

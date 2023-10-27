@@ -8,7 +8,6 @@ import './mapbox-navigation.js';
 import { bicycleFacilityRatingColor, roadwayPalette } from './colors.js';
 import { baseStyles } from "./styles";
 import './mwc-icon.js';
-import { classMap } from 'lit/directives/class-map.js';
 import './location-search-menu.js';
 
 export class BikeMapApp extends LitElement {
@@ -267,10 +266,6 @@ export class BikeMapApp extends LitElement {
         this._showDirectionsWidget = !this._showDirectionsWidget;
     }
 
-    _handleCloseNavButtonClick() {
-        this._showDirectionsWidget = false;
-    }
-
     static styles = [
         baseStyles,
         mapboxglStyles,
@@ -311,8 +306,8 @@ export class BikeMapApp extends LitElement {
                 padding: 0.3rem;
                 position: fixed;
                 z-index: 201;
-                left: 1vw;
-                top: 1vh;
+                left: 10px;
+                top: 10px;
                 transition: all .5s ease;
                 background: white;
                 border-radius: 3px;
@@ -365,38 +360,14 @@ export class BikeMapApp extends LitElement {
                 padding: 0.3rem;
                 position: absolute;
                 z-index: 100;
-                left: 1vw;
-                top: calc(1vh + 3rem);
+                left: 10px;
+                top: 60px;
                 transition: all .5s ease;
                 background: white;
                 border: none;
                 border-radius: 3px;
                 border-color: none;
             }
-
-            #navigation-widget {
-                position: fixed;
-                bottom: -40vh;
-                left: 0;
-                right: 0;
-                max-height: 40vh;
-                height: 40vh;
-                z-index: 100;
-                background: white;
-                transition: all .5s ease;
-                display: flex;
-                flex-direction: column;
-            }
-
-            #navigation-widget.visible {
-                bottom: 0;
-            }
-
-            #close-nav-button {
-                display: flex;
-                align-self: flex-end;
-            }
-
 
             .menu-scrim {
                 display: none;
@@ -438,19 +409,11 @@ export class BikeMapApp extends LitElement {
             >
                 <mwc-icon icon="directions"></mwc-icon>
             </button>
-            
-            <div id="navigation-widget" class=${classMap({ visible: this._showDirectionsWidget })}>
-                <button
-                    id="close-nav-button"
-                    class="nostyle"
-                    @click=${this._handleCloseNavButtonClick}
-                >
-                    <mwc-icon icon="close"></mwc-icon>
-                </button>
-                <mapbox-navigation id="navigation"
-                    @location-input-focused=${this._handleLocationInputFocused}
-                ></mapbox-navigation>
-            </div>
+
+            <mapbox-navigation id="navigation"
+                .visible=${this._showDirectionsWidget}
+                @location-input-focused=${this._handleLocationInputFocused}
+            ></mapbox-navigation>
             
             <div class="menu-scrim"></div>
             <div class="menu-bar height-1">
