@@ -82,12 +82,6 @@ export class LocationSearchMenu extends LitElement {
                                 pos.coords.longitude,
                                 pos.coords.latitude
                             ];
-                            this._map.flyTo({
-                                center: coord,
-                                zoom: 15,
-                                duration: 2000,
-                                essential: true
-                            });
                             this.geocodingSearch(...coord).then(res => {
                                 const displayText = res.features[0].place_name;
                                 this._setCoord(coord, displayText);

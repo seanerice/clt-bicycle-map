@@ -143,6 +143,29 @@ export class MapboxNavigation extends LitElement {
         }
     }
 
+    _fitScreenToPoints(coords) {
+        const max = [null, null];
+        const min = [null, null];
+        for (const [a, b] of coords) {
+            if (!max[0] || a > max[0]) {
+                max[0] = a;
+            }
+            if (!min[0] || a < min[0]) {
+                min[0] = a;
+            }
+            if (!max[1] || b > max[1]) {
+                max[1] = b;
+            }
+            if (!min[1] || b < min[1]) {
+                min[1] = b;
+            }
+        }
+        this._map.fitBounds([min, max], {
+            padding: 50,
+            duration: 2000
+        });
+    }
+
     _setCoord(coord, displayText) {
         if (this._focusedIndex === null || this._focusedIndex === undefined)
             this._focusedIndex = this.coords.length - 1;
@@ -156,7 +179,17 @@ export class MapboxNavigation extends LitElement {
         this._updateMapPoints(...this.coords);
 
         if (this.coords.every(coord => !!coord)) {
-            this.getRoute(...this.coords);
+            this.getRoute(...this.coords).then(data => {
+                const routePoints = data.geometry.coordinates;
+                this._fitScreenToPoints(routePoints);
+            });
+        } else {
+            this._map.flyTo({
+                center: coord,
+                zoom: 15,
+                duration: 2000,
+                essential: true
+            });
         }
 
         if (!displayText)
@@ -164,6 +197,8 @@ export class MapboxNavigation extends LitElement {
 
         this.coordsDisplayText[this._focusedIndex] = displayText;
         this.coordsDisplayText = [...this.coordsDisplayText];
+
+        this._focusedIndex = null;
     }
 
     async getRoute(...coords) {
@@ -212,6 +247,8 @@ export class MapboxNavigation extends LitElement {
                 }
             });
         }
+
+        return data;
     }
 
     static styles = [
