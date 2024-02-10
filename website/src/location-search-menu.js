@@ -123,9 +123,9 @@ export class LocationSearchMenu extends LitElement {
         if (args.length === 2 && args.every(arg => Number(arg))) {
             geocodingApiUrl = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${args.map(arg => Number(arg)).join(',')}.json`);
         }
-        
+
         geocodingApiUrl.searchParams.set('access_token', mapboxgl.accessToken);
-        geocodingApiUrl.searchParams.set('types','place,neighborhood,address,poi');
+        geocodingApiUrl.searchParams.set('types', 'place,neighborhood,address,poi');
         geocodingApiUrl.searchParams.set('bbox', '-81.06355,35.00332,-80.52998,35.41154');
         const res = await fetch(
             geocodingApiUrl,
@@ -143,7 +143,7 @@ export class LocationSearchMenu extends LitElement {
             if (this._placePointMode) {
                 const coord = Object.keys(event.lngLat)
                     .map((key) => event.lngLat[key]);
-                
+
                 this.geocodingSearch(...coord).then(res => {
                     const displayText = res.features[0].place_name;
                     this._setCoord(coord, displayText);
@@ -170,7 +170,7 @@ export class LocationSearchMenu extends LitElement {
                 right: 0;
                 background-color: white;
                 z-index: 300;
-                transition: all .5s ease;
+                transition: all 0.5s ease;
                 display: flex;
                 flex-direction: column;
                 align-items: stretch;
@@ -184,9 +184,10 @@ export class LocationSearchMenu extends LitElement {
                 z-index: 100;
                 height: 3rem;
                 left: 60px;
+                right: 10rem;
                 top: 10px;
                 position: fixed;
-                transition: all .5s ease, z-index 0s ease;
+                transition: all 0.5s ease, z-index 0.1s ease;
             }
 
             .search-bar input {
@@ -213,7 +214,6 @@ export class LocationSearchMenu extends LitElement {
                 z-index: 301;
                 left: 0;
                 right: 0;
-                display: block;
                 padding: 1rem;
             }
 
