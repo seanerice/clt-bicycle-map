@@ -35,10 +35,22 @@ export class MapboxNavigation extends LitElement {
 
     show() {
         this.visible = true;
+        this.dispatchEvent(
+            new CustomEvent('visible-change', {
+                bubbles: true,
+                detail: { value: this.visible }
+            })
+        );
     }
 
     hide() {
         this.visible = false;
+        this.dispatchEvent(
+            new CustomEvent('visible-change', {
+                bubbles: true,
+                detail: { value: this.visible }
+            })
+        );
     }
 
     get _map() {
@@ -117,7 +129,7 @@ export class MapboxNavigation extends LitElement {
 
         if (end) {
             const geojsonData = this._createGeojsonPoint(end);
-    
+
             if (!map.getLayer('end')) {
                 map.addLayer({
                     id: 'end',
@@ -132,7 +144,7 @@ export class MapboxNavigation extends LitElement {
                     }
                 });
             }
-    
+
             map.getSource('end')
                 .setData(geojsonData);
         }
@@ -160,8 +172,10 @@ export class MapboxNavigation extends LitElement {
                 min[1] = b;
             }
         }
+
+        const h = document.documentElement.clientHeight;
         this._map.fitBounds([min, max], {
-            padding: 50,
+            padding: { top: h * 0.05, bottom: h * 0.45, left: h * 0.05, right: h * 0.05 },
             duration: 2000
         });
     }

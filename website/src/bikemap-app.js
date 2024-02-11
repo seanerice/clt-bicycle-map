@@ -13,11 +13,6 @@ import './location-search-menu.js';
 export class BikeMapApp extends LitElement {
     _mapProvider = new ContextProvider(this, { context: mapContext });
 
-    constructor() {
-        super();
-        this._showDirectionsWidget = false;
-    }
-
     static get properties() {
         return {
             _showDirectionsWidget: { type: Boolean }
@@ -262,10 +257,6 @@ export class BikeMapApp extends LitElement {
         });
     }
 
-    _handleDirectionsButtonClick() {
-        this._showDirectionsWidget = !this._showDirectionsWidget;
-    }
-
     static styles = [
         baseStyles,
         mapboxglStyles,
@@ -386,6 +377,10 @@ export class BikeMapApp extends LitElement {
         `
     ];
 
+    _handleDirectionsButtonClick() {
+        this.shadowRoot.getElementById('navigation').show();
+    }
+
     _handleLocationSelected(event) {
         const { coord, displayText } = event.detail;
         this.shadowRoot.getElementById('navigation')._setCoord(coord, displayText);
@@ -411,7 +406,6 @@ export class BikeMapApp extends LitElement {
             </button>
 
             <mapbox-navigation id="navigation"
-                .visible=${this._showDirectionsWidget}
                 @location-input-focused=${this._handleLocationInputFocused}
             ></mapbox-navigation>
             
