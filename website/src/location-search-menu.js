@@ -215,11 +215,13 @@ export class LocationSearchMenu extends LitElement {
                 left: 0;
                 right: 0;
                 padding: 1rem;
+                top: 2rem;
             }
 
             .menu-item {
                 display: block;
                 padding: 1rem;
+                cursor: pointer;
             }
 
             .menu-item > * {
@@ -237,6 +239,11 @@ export class LocationSearchMenu extends LitElement {
 
             .menu-padding {
                 height: 5rem;
+            }
+
+            .close-button {
+                align-self: flex-start;
+                cursor: pointer;
             }
         `
     ];
@@ -271,10 +278,19 @@ export class LocationSearchMenu extends LitElement {
                     placeholder="Search..."
                     .value=${this._locationSearchTerm || ''}
                     @keydown=${this._handleLocationSearchKeyDown}
-                    @focus=${() => { this._showChooseLocationWidget = true; }}>
-                <button class="nostyle" @click=${this._handleLocationSearchButton}><mwc-icon icon="search"></mwc-icon></button>
+                    @focus=${() => { this.show() }}>
+                <button class="nostyle" @click=${this._handleLocationSearchButton}>
+                    <mwc-icon icon="search"></mwc-icon>
+                </button>
             </div>
             <div id="choose-location-widget" class=${classMap({ visible: this._showChooseLocationWidget })}>
+                <button
+                    id="close-nav-button"
+                    class="nostyle close-button"
+                    @click=${() => { this.hide(); }}
+                >
+                    <mwc-icon icon="close"></mwc-icon>
+                </button>
                 <div class="menu-padding"></div>
                 ${this._searchResultsTemplate()}
                 ${this._searchResults ? html`<hr>` : nothing}
