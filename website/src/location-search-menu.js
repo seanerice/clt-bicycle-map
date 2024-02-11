@@ -82,12 +82,6 @@ export class LocationSearchMenu extends LitElement {
                                 pos.coords.longitude,
                                 pos.coords.latitude
                             ];
-                            this._map.flyTo({
-                                center: coord,
-                                zoom: 15,
-                                duration: 2000,
-                                essential: true
-                            });
                             this.geocodingSearch(...coord).then(res => {
                                 const displayText = res.features[0].place_name;
                                 this._setCoord(coord, displayText);
@@ -129,9 +123,9 @@ export class LocationSearchMenu extends LitElement {
         if (args.length === 2 && args.every(arg => Number(arg))) {
             geocodingApiUrl = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${args.map(arg => Number(arg)).join(',')}.json`);
         }
-        
+
         geocodingApiUrl.searchParams.set('access_token', mapboxgl.accessToken);
-        geocodingApiUrl.searchParams.set('types','place,neighborhood,address,poi');
+        geocodingApiUrl.searchParams.set('types', 'place,neighborhood,address,poi');
         geocodingApiUrl.searchParams.set('bbox', '-81.06355,35.00332,-80.52998,35.41154');
         const res = await fetch(
             geocodingApiUrl,
@@ -149,7 +143,7 @@ export class LocationSearchMenu extends LitElement {
             if (this._placePointMode) {
                 const coord = Object.keys(event.lngLat)
                     .map((key) => event.lngLat[key]);
-                
+
                 this.geocodingSearch(...coord).then(res => {
                     const displayText = res.features[0].place_name;
                     this._setCoord(coord, displayText);
@@ -176,7 +170,7 @@ export class LocationSearchMenu extends LitElement {
                 right: 0;
                 background-color: white;
                 z-index: 300;
-                transition: all .5s ease;
+                transition: all 0.5s ease;
                 display: flex;
                 flex-direction: column;
                 align-items: stretch;
@@ -187,8 +181,13 @@ export class LocationSearchMenu extends LitElement {
             }
 
             .search-bar {
+                z-index: 100;
                 height: 3rem;
-                position: relative;
+                left: 60px;
+                right: 10rem;
+                top: 10px;
+                position: fixed;
+                transition: all 0.5s ease, z-index 0.1s ease;
             }
 
             .search-bar input {
@@ -211,9 +210,18 @@ export class LocationSearchMenu extends LitElement {
                 top: 0;
             }
 
+            .search-bar.show-in-menu {
+                z-index: 301;
+                left: 0;
+                right: 0;
+                padding: 1rem;
+                top: 2rem;
+            }
+
             .menu-item {
                 display: block;
                 padding: 1rem;
+                cursor: pointer;
             }
 
             .menu-item > * {
@@ -227,6 +235,15 @@ export class LocationSearchMenu extends LitElement {
 
             .menu-item:hover {
                 background-color: lightgray;
+            }
+
+            .menu-padding {
+                height: 5rem;
+            }
+
+            .close-button {
+                align-self: flex-start;
+                cursor: pointer;
             }
         `
     ];
@@ -254,16 +271,27 @@ export class LocationSearchMenu extends LitElement {
 
     render() {
         return html`
+            <div class="search-bar ${classMap({ 'show-in-menu': this._showChooseLocationWidget })}">
+                <input
+                    id="location-search-input"
+                    type="text"
+                    placeholder="Search..."
+                    .value=${this._locationSearchTerm || ''}
+                    @keydown=${this._handleLocationSearchKeyDown}
+                    @focus=${() => { this.show() }}>
+                <button class="nostyle" @click=${this._handleLocationSearchButton}>
+                    <mwc-icon icon="search"></mwc-icon>
+                </button>
+            </div>
             <div id="choose-location-widget" class=${classMap({ visible: this._showChooseLocationWidget })}>
-                <div class="search-bar menu-item">
-                    <input
-                        id="location-search-input"
-                        type="text"
-                        placeholder="Search..."
-                        .value=${this._locationSearchTerm || ''}
-                        @keydown=${this._handleLocationSearchKeyDown}>
-                    <button class="nostyle" @click=${this._handleLocationSearchButton}><mwc-icon icon="search"></mwc-icon></button>
-                </div>
+                <button
+                    id="close-nav-button"
+                    class="nostyle close-button"
+                    @click=${() => { this.hide(); }}
+                >
+                    <mwc-icon icon="close"></mwc-icon>
+                </button>
+                <div class="menu-padding"></div>
                 ${this._searchResultsTemplate()}
                 ${this._searchResults ? html`<hr>` : nothing}
                 <a class="menu-item" @click=${this._menuClickHandler('my-location')}>

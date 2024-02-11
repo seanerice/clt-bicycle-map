@@ -4,7 +4,9 @@ import { LitElement, html, css, nothing } from 'lit';
 import { mapContext } from './mapContext';
 import mapboxgl from 'mapbox-gl';
 import { baseStyles } from './styles';
+import { classMap } from 'lit/directives/class-map.js';
 import './mwc-icon.js';
+
 
 export class MapboxNavigation extends LitElement {
     _mapConsumer = new ContextConsumer(
@@ -27,7 +29,28 @@ export class MapboxNavigation extends LitElement {
             interactionState: { type: String },
             coords: { type: Array },
             coordsDisplayText: { type: String },
+            visible: { type: Boolean }
         };
+    }
+
+    show() {
+        this.visible = true;
+        this.dispatchEvent(
+            new CustomEvent('visible-change', {
+                bubbles: true,
+                detail: { value: this.visible }
+            })
+        );
+    }
+
+    hide() {
+        this.visible = false;
+        this.dispatchEvent(
+            new CustomEvent('visible-change', {
+                bubbles: true,
+                detail: { value: this.visible }
+            })
+        );
     }
 
     get _map() {
@@ -106,7 +129,7 @@ export class MapboxNavigation extends LitElement {
 
         if (end) {
             const geojsonData = this._createGeojsonPoint(end);
-    
+
             if (!map.getLayer('end')) {
                 map.addLayer({
                     id: 'end',
@@ -121,7 +144,7 @@ export class MapboxNavigation extends LitElement {
                     }
                 });
             }
-    
+
             map.getSource('end')
                 .setData(geojsonData);
         }
@@ -132,14 +155,55 @@ export class MapboxNavigation extends LitElement {
         }
     }
 
+    _fitScreenToPoints(coords) {
+        const max = [null, null];
+        const min = [null, null];
+        for (const [a, b] of coords) {
+            if (!max[0] || a > max[0]) {
+                max[0] = a;
+            }
+            if (!min[0] || a < min[0]) {
+                min[0] = a;
+            }
+            if (!max[1] || b > max[1]) {
+                max[1] = b;
+            }
+            if (!min[1] || b < min[1]) {
+                min[1] = b;
+            }
+        }
+
+        const h = document.documentElement.clientHeight;
+        this._map.fitBounds([min, max], {
+            padding: { top: h * 0.05, bottom: h * 0.45, left: h * 0.05, right: h * 0.05 },
+            duration: 2000
+        });
+    }
+
     _setCoord(coord, displayText) {
+        if (this._focusedIndex === null || this._focusedIndex === undefined)
+            this._focusedIndex = this.coords.length - 1;
+
+        if (!this.visible)
+            this.show();
+
         this.coords[this._focusedIndex] = coord;
         this.coords = [...this.coords];
 
         this._updateMapPoints(...this.coords);
 
         if (this.coords.every(coord => !!coord)) {
-            this.getRoute(...this.coords);
+            this.getRoute(...this.coords).then(data => {
+                const routePoints = data.geometry.coordinates;
+                this._fitScreenToPoints(routePoints);
+            });
+        } else {
+            this._map.flyTo({
+                center: coord,
+                zoom: 15,
+                duration: 2000,
+                essential: true
+            });
         }
 
         if (!displayText)
@@ -147,6 +211,8 @@ export class MapboxNavigation extends LitElement {
 
         this.coordsDisplayText[this._focusedIndex] = displayText;
         this.coordsDisplayText = [...this.coordsDisplayText];
+
+        this._focusedIndex = null;
     }
 
     async getRoute(...coords) {
@@ -195,6 +261,8 @@ export class MapboxNavigation extends LitElement {
                 }
             });
         }
+
+        return data;
     }
 
     static styles = [
@@ -223,6 +291,30 @@ export class MapboxNavigation extends LitElement {
                 width: 100%;
                 height: 3rem;
             }
+
+            #navigation-widget {
+                position: fixed;
+                bottom: -40vh;
+                left: 0;
+                right: 0;
+                max-height: 40vh;
+                height: 40vh;
+                z-index: 100;
+                background: white;
+                transition: all .5s ease;
+                display: flex;
+                flex-direction: column;
+            }
+
+            #navigation-widget.visible {
+                bottom: 0;
+            }
+
+            #close-nav-button {
+                display: flex;
+                align-self: flex-end;
+            }
+
         `
     ];
 
@@ -253,28 +345,38 @@ export class MapboxNavigation extends LitElement {
             return nothing;
 
         return html`
-            <div id="input-container">
-                <mwc-icon icon="trip_origin"></mwc-icon>
-                <input
-                    type="text"
-                    placeholder="Starting point"
-                    value=${`${this.coordsDisplayText[0] || this.coords[0] || ""}`}
-                    @focus=${this._inputFocusHandler(0)}
-                    inputmode="none"
+            <div id="navigation-widget" class=${classMap({ visible: this.visible })}>
+                <button
+                    id="close-nav-button"
+                    class="nostyle"
+                    @click=${() => { this.hide(); }}
                 >
-                <span></span>
-                    
-                ${this._getIntermediatePointsTemplate()}
-                <mwc-icon icon="sports_score"></mwc-icon>
-                <input
-                    type="text"
-                    placeholder="Destination"
-                    value=${`${this.coordsDisplayText[this.coordsDisplayText.length - 1] || this.coords[this.coords.length - 1] || ""}`}
-                    @focus=${this._inputFocusHandler(this.coords.length - 1)}
-                    inputmode="none"
-                >
-                <span></span>
+                    <mwc-icon icon="close"></mwc-icon>
+                </button>
+                <div id="input-container">
+                    <mwc-icon icon="trip_origin"></mwc-icon>
+                    <input
+                        type="text"
+                        placeholder="Starting point"
+                        value=${`${this.coordsDisplayText[0] || this.coords[0] || ""}`}
+                        @focus=${this._inputFocusHandler(0)}
+                        inputmode="none"
+                    >
+                    <span></span>
+                        
+                    ${this._getIntermediatePointsTemplate()}
+                    <mwc-icon icon="sports_score"></mwc-icon>
+                    <input
+                        type="text"
+                        placeholder="Destination"
+                        value=${`${this.coordsDisplayText[this.coordsDisplayText.length - 1] || this.coords[this.coords.length - 1] || ""}`}
+                        @focus=${this._inputFocusHandler(this.coords.length - 1)}
+                        inputmode="none"
+                    >
+                    <span></span>
+                </div>
             </div>
+
         `;
     }
 }
