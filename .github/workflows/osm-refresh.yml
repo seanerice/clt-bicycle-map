@@ -1,7 +1,7 @@
 name: Preprocess OSM Data
 on:
   schedule:
-    cron: "0 0 * * *"
+    - cron: "0 0 * * *"
 
 jobs:
   sync:
