@@ -1,7 +1,8 @@
 name: Preprocess OSM Data
 on:
   pull_request:
-    - "main"
+    branches:
+      - "main"
   schedule:
     - cron: "0 0 * * *"
 
