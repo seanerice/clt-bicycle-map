@@ -20,6 +20,9 @@ jobs:
           version: 2
           arch: amd64
 
+      - name: confirm aws cli version
+        run: aws --version
+
       - name: "Checkout repo"
         uses: actions/checkout@v3
 
