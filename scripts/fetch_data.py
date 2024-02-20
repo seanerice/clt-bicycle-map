@@ -101,9 +101,12 @@ def hasCyclewayBufferValue(value):
     if value == "yes":
         return True
     
-    (n, p) = osm_unit_regex.match(value).groups()
-    if float(n) > 0:
-        return True
+    ur_match = osm_unit_regex.match(value)
+    if (ur_match):
+        (n, p) = osm_unit_regex.match(value).groups()
+        num = re.sub('[^0-9]','', n)
+        if float(num) > 0:
+            return True
     
     return False
     
