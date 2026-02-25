@@ -1,30 +1,106 @@
 import json
 import requests
 import re
+import time
 from osm2geojson import json2geojson 
 
 def fetch_data():
-    url = 'http://overpass-api.de/api/interpreter'  # Overpass API URL
-    query = f"""
-        [out:json][timeout:25];
-        area(id:3600177415)->.searchArea;
-        (
-            // query part for "cycleway:*=*"
-            way[~"^cycleway:.*$"~"."](area.searchArea);
-            way["cycleway"~"."](area.searchArea);
-            way["highway"="cycleway"](area.searchArea);
-            way["bicycle"="designated"](area.searchArea);
-            way["bicycle"="yes"](area.searchArea);
-            relation["route"="bicycle"](area.searchArea);
-        );
-        out body;
-        >;
-        out skel qt;
-    """
-    r = requests.get(url, params={'data': query})
-    data = r.json()
+    # For performance, query each area separately and combine results.
+    def fetch_data_for_area(area_id):
+        url = 'http://overpass-api.de/api/interpreter'
+        query = f"""
+            [out:json][timeout:25];
+            area(id:{area_id})->.searchArea;
+            (
+                way[~"^cycleway:.*$"~"."](area.searchArea);
+                way["cycleway"~"."](area.searchArea);
+                way["highway"="cycleway"](area.searchArea);
+                way["bicycle"="designated"](area.searchArea);
+                way["bicycle"="yes"](area.searchArea);
+                relation["route"="bicycle"](area.searchArea);
+            )->.all;
+            (
+                way["highway"="proposed"](area.searchArea);
+            )->.proposed;
+            (.all; - .proposed;);
+            out body;
+            >;
+            out skel qt;
+        """
+        headers = {'User-Agent': 'clt-bicycle-map-fetcher/1.0 (contact: none)'}
+        attempts = 5
+        backoff = 1
+        for attempt in range(1, attempts + 1):
+            try:
+                r = requests.get(url, params={'data': query}, headers=headers, timeout=60)
+            except requests.RequestException as e:
+                print(f"DEBUG: HTTP request exception for area {area_id}: {e} (attempt {attempt}/{attempts})")
+                if attempt == attempts:
+                    raise
+                time.sleep(backoff)
+                backoff *= 2
+                continue
 
-    return data
+            text = r.text or ''
+            print(f"DEBUG: area={area_id} status={r.status_code} content-type={r.headers.get('content-type')} length={len(text)} (attempt {attempt}/{attempts})")
+
+            # Handle rate limiting explicitly
+            if r.status_code == 429:
+                ra = r.headers.get('Retry-After')
+                try:
+                    wait = int(ra) if ra is not None else backoff
+                except Exception:
+                    wait = backoff
+                print(f"DEBUG: 429 for area {area_id}, sleeping {wait}s before retry")
+                time.sleep(wait)
+                backoff *= 2
+                continue
+
+            if r.status_code != 200:
+                snippet = text[:2000]
+                print(f"DEBUG: non-200 response for area {area_id}. Snippet:\n{snippet}")
+                try:
+                    with open(f"../data/overpass_area_{area_id}_resp.txt", "w", encoding="utf-8") as fh:
+                        fh.write(snippet)
+                except Exception:
+                    pass
+                r.raise_for_status()
+
+            try:
+                return r.json()
+            except json.JSONDecodeError:
+                snippet = text[:2000]
+                print(f"DEBUG: JSON decode failed for area {area_id}. Snippet:\n{snippet}")
+                try:
+                    with open(f"../data/overpass_area_{area_id}_resp.txt", "w", encoding="utf-8") as fh:
+                        fh.write(snippet)
+                except Exception:
+                    pass
+                if attempt == attempts:
+                    raise
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+
+        raise RuntimeError(f"Exceeded {attempts} attempts fetching area {area_id}")
+
+    # Fetch each area explicitly (no loop) for clearer flow
+    d1 = fetch_data_for_area(3600177415)  # Charlotte
+    d2 = fetch_data_for_area(3600179740)  # Belmont
+    d3 = fetch_data_for_area(3600176891)  # Cramerton
+    d4 = fetch_data_for_area(3600179731)  # McAdenville
+
+    version = d1.get('version')
+    osm3s = d1.get('osm3s')
+
+    combined_elements = [*(d1.get('elements', [])), *(d2.get('elements', [])), *(d3.get('elements', [])), *(d4.get('elements', []))]
+
+    return {
+        'version': version or 0,
+        'generator': 'combined',
+        'osm3s': osm3s or {},
+        'elements': combined_elements
+    }
 
 def write_data(data, path, minify=False):
     indent = 4
