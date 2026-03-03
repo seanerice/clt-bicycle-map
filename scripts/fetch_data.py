@@ -2,6 +2,7 @@ import json
 import requests
 import re
 import time
+import random
 from osm2geojson import json2geojson 
 
 def fetch_data():
@@ -29,7 +30,7 @@ def fetch_data():
         """
         headers = {'User-Agent': 'clt-bicycle-map-fetcher/1.0 (contact: none)'}
         attempts = 5
-        backoff = 1
+        backoff = 15
         for attempt in range(1, attempts + 1):
             try:
                 r = requests.get(url, params={'data': query}, headers=headers, timeout=60)
@@ -45,15 +46,19 @@ def fetch_data():
             print(f"DEBUG: area={area_id} status={r.status_code} content-type={r.headers.get('content-type')} length={len(text)} (attempt {attempt}/{attempts})")
 
             # Handle rate limiting explicitly
-            if r.status_code == 429:
+            if r.status_code in (429, 504):
                 ra = r.headers.get('Retry-After')
-                try:
-                    wait = int(ra) if ra is not None else backoff
-                except Exception:
-                    wait = backoff
-                print(f"DEBUG: 429 for area {area_id}, sleeping {wait}s before retry")
+                if ra and ra.isdigit():
+                    wait = int(ra)
+                else:
+                    if r.status_code == 504:
+                        wait = min(backoff * 2, 60)
+                    else:
+                        wait = backoff
+                    wait = wait + random.uniform(0, 1)
+                print(f"DEBUG: {r.status_code} for area {area_id}, sleeping {wait}s before retry")
                 time.sleep(wait)
-                backoff *= 2
+                backoff = min(backoff * 2, 60)
                 continue
 
             if r.status_code != 200:
