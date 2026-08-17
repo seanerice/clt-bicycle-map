@@ -31,9 +31,19 @@ from psycopg.types.json import Jsonb
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPORT_PATH = REPO_ROOT / "data" / "export.geojson"
 
-# Copied from scripts/fetch_data.py's highway_roads / highway_paths lists
-# (not imported — fetch_data.py performs a live Overpass fetch at module
-# scope on import, so importing it here would trigger a network call).
+# This is the intended/correct highway_roads / highway_paths classification
+# (i.e. what scripts/fetch_data.py's own highway_roads / highway_paths lists
+# should contain) — not imported from fetch_data.py, since it performs a
+# live Overpass fetch at module scope on import, so importing it here would
+# trigger a network call. Note fetch_data.py currently has a known
+# comma-typo bug between "tertiary_link" and "living_street" in its
+# highway_roads list (tracked for a fix in a separate, later epic, not this
+# script's job), which merges them into one bogus entry via Python string
+# literal concatenation and silently drops any tertiary_link/living_street
+# way before it ever reaches data/export.geojson. So this set is not a
+# byte-for-byte copy of fetch_data.py's actual (buggy) list — that
+# discrepancy is just currently inert against today's export.geojson, since
+# no tertiary_link/living_street ways are present in it to classify.
 # Used to re-derive each way feature's road-vs-path classification exactly
 # as transform_way_feature does, from the `highway` tag. This is needed
 # because the export file does not persist that classification as its own
@@ -136,6 +146,16 @@ def feature_to_params(feature):
     # every non-way feature in the current pipeline output happens to be a
     # route relation (route=bicycle), per the Overpass query in
     # fetch_data.py.
+    #
+    # Note this same spread pattern is also applied to WAYS, by
+    # transform_road_feature/transform_path_feature — so this check also
+    # assumes no way in the export carries its own OSM `type` tag (valid
+    # but uncommon OSM tagging, e.g. type=disused — unrelated to
+    # osm2geojson's own top-level `type: "way"` field), which would clobber
+    # properties.type the same way relations' tags do and cause that way to
+    # be misclassified as a relation here too. Confirmed programmatically
+    # not to occur in the current export.geojson (0 affected features), but
+    # not structurally guaranteed for a hypothetical future export.
     osm_type = "way" if raw_type == "way" else "relation"
 
     highway = properties.get("highway")
