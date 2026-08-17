@@ -143,6 +143,15 @@ class TestExplainIndexUsage:
             for n in nodes
             if n.get("Node Type") == "Seq Scan" and n.get("Relation Name") == "features"
         ]
+        # This assertion rides on the planner's cost model (random_page_cost,
+        # effective_cache_size, statistics sampling, etc.), which can differ
+        # across Postgres versions/images or host resource limits and isn't
+        # fully pinned down by FIXTURE_COUNT alone. That's an inherent
+        # characteristic of an EXPLAIN-based index-usage test, not something
+        # this test can eliminate — it's why this test is marked `slow` and
+        # kept out of the fast default run. If it starts flaking on a seq
+        # scan in some environment despite the index existing and working,
+        # bump FIXTURE_COUNT rather than treating it as a real regression.
         assert not seq_scans_on_features, (
             "Expected the bbox query to use idx_features_geom, but found a "
             f"Seq Scan on features instead. Full plan:\n{json.dumps(plan_result, indent=2)}"
