@@ -15,8 +15,9 @@ namespace BikeMap.Migrations;
 /// appsettings.json (host/port/database/username — see
 /// ConnectionStrings:Default) and the POSTGRES_PASSWORD environment
 /// variable (the same one docker-compose reads from a local, gitignored
-/// .env — see db/.env.example). This keeps the password out of source
-/// control while everything else stays easy to read/change.
+/// .env at the repo root — see .env.example there). This keeps the
+/// password out of source control while everything else stays easy to
+/// read/change.
 ///
 /// For non-local scenarios (CI, etc.) the entire connection string can be
 /// overridden via the BIKEMAP_CONNECTION_STRING environment variable.
@@ -34,10 +35,20 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<BikeMapDbC
                 .AddJsonFile("appsettings.json", optional: false)
                 .Build();
 
+            var password = Environment.GetEnvironmentVariable("POSTGRES_PASSWORD");
+
+            if (string.IsNullOrEmpty(password))
+            {
+                throw new InvalidOperationException(
+                    "POSTGRES_PASSWORD is not set. Set POSTGRES_PASSWORD in your " +
+                    "environment before running dotnet ef commands — see the " +
+                    "repo-root .env.example.");
+            }
+
             var builder = new NpgsqlConnectionStringBuilder(
                 configuration.GetConnectionString("Default"))
             {
-                Password = Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"),
+                Password = password,
             };
 
             connectionString = builder.ConnectionString;

@@ -27,8 +27,9 @@ Once Epic 2 stands up `api/Api.csproj`, that project can reference this one
 ## Running migrations
 
 From this directory (`db/Migrations/`), with the `db` compose service
-running and `POSTGRES_PASSWORD` set in the environment (e.g. via
-`db/.env`, the same file docker-compose reads — see `../.env.example`):
+running and `POSTGRES_PASSWORD` set in the environment (e.g. via the
+repo-root `.env`, the same file docker-compose reads — see
+`../../.env.example`):
 
 ```
 dotnet ef database update
@@ -48,6 +49,7 @@ anything else — there is no runtime "anything else" yet) builds the
 connection string from:
 - `appsettings.json` (committed, non-secret): host/port/database/username.
 - The `POSTGRES_PASSWORD` environment variable for the password — never
-  committed, matches what docker-compose itself reads from `db/.env`.
+  committed, matches what docker-compose itself reads from the repo-root
+  `.env`.
 - Or, if set, `BIKEMAP_CONNECTION_STRING` overrides all of the above with a
   full connection string (useful for CI or other non-local scenarios).

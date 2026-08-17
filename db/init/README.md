@@ -8,7 +8,11 @@ needs to evolve past its first version, ongoing changes go through an
 explicit migration step (see docs/planning/layers/persistence-layer.md §6),
 not this directory.
 
-For now it holds a single script that enables the `postgis` extension, so a
-freshly created database is immediately usable without a manual step. If a
-later story (e.g. an EF Core migration) takes over creating the extension
-itself, this file can be deleted — don't let both mechanisms try to own it.
+This directory is currently empty. It previously held a single script that
+enabled the `postgis` extension, but that responsibility moved to the EF
+Core `InitialEmpty` migration (see `db/Migrations/Migrations/`), which is
+now the sole owner of that DDL — don't reintroduce a script here that also
+creates the extension.
+
+The directory stays mounted (see `docker-compose.yml`) in case a future
+story needs a genuine one-shot, pre-migration bootstrap step.
