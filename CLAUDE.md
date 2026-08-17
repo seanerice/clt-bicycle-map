@@ -27,6 +27,13 @@ python fetch_data.py   # queries Overpass API per area, writes ../data/export.ge
 ```
 `fetch_data.py` has no CLI args — the list of OSM relation area IDs to query (Charlotte, Belmont, Cramerton, McAdenville) is hardcoded near the bottom of the file, as are the Overpass endpoint and retry/backoff behavior. Output is minified GeoJSON at `data/export.geojson`.
 
+### Database (`db/`)
+```
+cp .env.example .env       # first time only; sets POSTGRES_PASSWORD locally
+docker compose up db       # starts a PostGIS 16-3.4 container on localhost:5432
+```
+`.env` is gitignored — `docker compose up db` reads `POSTGRES_PASSWORD` from it. The named volume `pgdata` persists data across `docker compose down`/`up`. `db/init/` only runs on first boot against an empty volume (see `db/init/README.md`) — it is not a migration mechanism.
+
 There is no test suite for either the frontend or the pipeline.
 
 ## Architecture
