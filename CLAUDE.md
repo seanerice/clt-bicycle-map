@@ -39,7 +39,7 @@ docker compose up db       # starts a PostGIS 16-3.4 container on localhost:5432
 cd db/Migrations
 dotnet ef database update   # applies pending EF Core migrations to the `db` service
 ```
-Run from `db/Migrations/` (the project directory) with the `db` service up and `POSTGRES_PASSWORD` set in the environment (`db/Migrations` reads it the same way docker-compose does — see `db/Migrations/README.md`). This is a minimal class library that exists only to host EF Core migration tooling (`BikeMapDbContext`) ahead of the future `api/` project — see `db/Migrations/README.md` for why it's scaffolded separately and early. It currently has no entities registered; story 1.6 adds the `features` entity mapping.
+Run from `db/Migrations/` (the project directory) with the `db` service up and `POSTGRES_PASSWORD` set in the environment (`db/Migrations` reads it the same way docker-compose does — see `db/Migrations/README.md`). This is a minimal class library that exists only to host EF Core migration tooling (`BikeMapDbContext`) ahead of the future `api/` project — see `db/Migrations/README.md` for why it's scaffolded separately and early. `BikeMapDbContext` registers one entity, `Feature` (table `features`, mapped to `docs/planning/layers/persistence-layer.md` §1.1) — `feature_type` is a real Postgres enum (`feature_type_enum`), mapped to the `FeatureType` C# enum via Npgsql's `HasPostgresEnum`/`MapEnum`.
 
 There is no test suite for either the frontend or the pipeline.
 
