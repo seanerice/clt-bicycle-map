@@ -87,21 +87,41 @@ def _wait_for_db(timeout_seconds=60):
 
 @pytest.fixture(scope="session", autouse=True)
 def _db_ready():
-    subprocess.run(
-        ["docker", "compose", "up", "-d", "db"],
-        cwd=REPO_ROOT,
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["docker", "compose", "up", "-d", "db"],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+    except FileNotFoundError:
+        pytest.exit(
+            "docker is not installed or not on PATH. These integration "
+            "tests need it to bring up the docker-compose `db` service — "
+            "install Docker Desktop (or the docker CLI) and make sure it's "
+            "on PATH, then re-run:\n"
+            "  POSTGRES_PASSWORD=... pytest scripts/tests/test_persistence_integration.py",
+            returncode=1,
+        )
     _wait_for_db()
 
     env = dict(os.environ)
     env["POSTGRES_PASSWORD"] = POSTGRES_PASSWORD
-    subprocess.run(
-        ["dotnet", "ef", "database", "update"],
-        cwd=MIGRATIONS_DIR,
-        env=env,
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["dotnet", "ef", "database", "update"],
+            cwd=MIGRATIONS_DIR,
+            env=env,
+            check=True,
+        )
+    except FileNotFoundError:
+        pytest.exit(
+            "dotnet ef is not installed or not on PATH. These integration "
+            "tests need it to apply EF Core migrations from db/Migrations/ "
+            "— install it with `dotnet tool install --global dotnet-ef` and "
+            "make sure it's on PATH, then re-run:\n"
+            "  POSTGRES_PASSWORD=... pytest scripts/tests/test_persistence_integration.py",
+            returncode=1,
+        )
 
 
 @pytest.fixture
