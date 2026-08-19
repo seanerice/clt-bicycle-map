@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: bikemap
+      POSTGRES_USER: bikemap
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro   # first-boot bootstrap only, see db/init/README.md
+    ports:
+      - "5432:5432"   # local dev convenience; not needed once the API talks to `db` over the compose network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bikemap -d bikemap"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
