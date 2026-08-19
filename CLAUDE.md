@@ -34,6 +34,13 @@ docker compose up db       # starts a PostGIS 16-3.4 container on localhost:5432
 ```
 `.env` is gitignored — `docker compose up db` reads `POSTGRES_PASSWORD` from it. The named volume `pgdata` persists data across `docker compose down`/`up`. `db/init/` only runs on first boot against an empty volume (see `db/init/README.md`) — it is not a migration mechanism.
 
+### Migrations (`db/Migrations/`)
+```
+cd db/Migrations
+dotnet ef database update   # applies pending EF Core migrations to the `db` service
+```
+Run from `db/Migrations/` (the project directory) with the `db` service up and `POSTGRES_PASSWORD` set in the environment (`db/Migrations` reads it the same way docker-compose does — see `db/Migrations/README.md`). This is a minimal class library that exists only to host EF Core migration tooling (`BikeMapDbContext`) ahead of the future `api/` project — see `db/Migrations/README.md` for why it's scaffolded separately and early. It currently has no entities registered; story 1.6 adds the `features` entity mapping.
+
 There is no test suite for either the frontend or the pipeline.
 
 ## Architecture
