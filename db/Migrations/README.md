@@ -15,10 +15,19 @@ types a future ASP.NET Core API project will also use for the same tables
 `dotnet ef` needs a .NET project to run against, but the full `api/`
 project (Epic 2) doesn't exist yet — building it out just to unblock
 schema migrations would be backwards. So this project scaffolds *only*
-what `dotnet ef` needs: package references, an (initially empty)
-`BikeMapDbContext`, and a design-time factory. It is deliberately not a
-web project and has no entities registered yet — story 1.6 adds the
-`features` entity mapping here.
+what `dotnet ef` needs: package references, a `BikeMapDbContext`, and a
+design-time factory. It is deliberately not a web project.
+
+Story 1.6 added the first entity, `Feature` (`Feature.cs`, table
+`features`) — see `docs/planning/layers/persistence-layer.md` §1.1 for the
+authoritative schema. `feature_type` is a real Postgres enum
+(`feature_type_enum`, `FeatureType.cs`), not TEXT+CHECK; it's registered
+via `modelBuilder.HasPostgresEnum<FeatureType>(name: "feature_type_enum")`
+in `BikeMapDbContext.OnModelCreating` for migration DDL generation, and via
+`NpgsqlDataSourceBuilder.MapEnum<FeatureType>("feature_type_enum")` in
+`DesignTimeDbContextFactory` so `dotnet ef` actually maps the CLR enum to
+the Postgres type instead of a plain integer column. A future `api/`
+project's own connection setup will need the same `MapEnum` registration.
 
 Once Epic 2 stands up `api/Api.csproj`, that project can reference this one
 (or this one's contents can be absorbed into it) without a disruptive move

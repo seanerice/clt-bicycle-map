@@ -54,8 +54,13 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<BikeMapDbC
             connectionString = builder.ConnectionString;
         }
 
+        var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+        dataSourceBuilder.UseNetTopologySuite();
+        dataSourceBuilder.MapEnum<FeatureType>("feature_type_enum");
+        var dataSource = dataSourceBuilder.Build();
+
         var optionsBuilder = new DbContextOptionsBuilder<BikeMapDbContext>();
-        optionsBuilder.UseNpgsql(connectionString, o => o.UseNetTopologySuite());
+        optionsBuilder.UseNpgsql(dataSource, o => o.UseNetTopologySuite());
 
         return new BikeMapDbContext(optionsBuilder.Options);
     }
