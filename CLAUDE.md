@@ -41,7 +41,13 @@ dotnet ef database update   # applies pending EF Core migrations to the `db` ser
 ```
 Run from `db/Migrations/` (the project directory) with the `db` service up and `POSTGRES_PASSWORD` set in the environment (`db/Migrations` reads it the same way docker-compose does — see `db/Migrations/README.md`). This is a minimal class library that exists only to host EF Core migration tooling (`BikeMapDbContext`) ahead of the future `api/` project — see `db/Migrations/README.md` for why it's scaffolded separately and early. `BikeMapDbContext` registers one entity, `Feature` (table `features`, mapped to `docs/planning/layers/persistence-layer.md` §1.1) — `feature_type` is a real Postgres enum (`feature_type_enum`), mapped to the `FeatureType` C# enum via Npgsql's `HasPostgresEnum`/`MapEnum`.
 
-There is no test suite for either the frontend or the pipeline.
+### Persistence-layer integration tests (`scripts/tests/`)
+```
+cp .env.example .env       # first time only; sets POSTGRES_PASSWORD locally
+pip install -r scripts/requirements.txt
+POSTGRES_PASSWORD=<value from .env> pytest scripts/tests/test_persistence_integration.py
+```
+Runs against the docker-compose `db` service (per `docs/planning/layers/persistence-layer.md` §8) — a session-scoped fixture in `scripts/tests/conftest.py` runs `docker compose up -d db` and `dotnet ef database update` once, so a fresh `docker compose down -v` environment works with just the one `pytest` command above (both steps are idempotent, so it's also safe to run against a `db` that's already up and migrated). A small hand-written fixture set (not the full `data/export.geojson`) spanning `road`/`path`/`route` covers idempotent UPSERT (`first_seen_at` stable, `last_seen_at` advances on re-load), bbox query correctness (`&&` + `ST_Intersects`), and constraint rejection (`chk_features_geom_valid`, `ux_features_osm_key`) with assertions on the specific constraint name. Each test truncates `features` first for isolation — no cross-test state. There is no test suite for the frontend or the `fetch_data.py` pipeline.
 
 ## Architecture
 

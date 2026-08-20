@@ -4,4 +4,6 @@ website/dist
 .env
 bin/
 obj/
+__pycache__/
+.pytest_cache/
 data/export.geojson
