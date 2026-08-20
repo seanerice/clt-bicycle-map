@@ -1,9 +1,10 @@
 import json
+import os
 import requests
 import re
 import time
 import random
-from osm2geojson import json2geojson 
+from osm2geojson import json2geojson
 
 def fetch_data():
     # For performance, query each area separately and combine results.
@@ -114,6 +115,7 @@ def write_data(data, path, minify=False):
         indent = None
         separators = (',', ':')
 
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, mode="w") as f:
         f.write(json.dumps(data, indent=indent, separators=separators))
 
