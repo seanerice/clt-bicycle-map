@@ -55,6 +55,8 @@ The GitHub Actions workflow (`osm-refresh.yml`) runs this daily via cron, on PRs
 
 `scripts/load_neo4j.py` is an in-progress experiment loading `export.geojson` LineStrings into Neo4j via APOC — not currently wired into the pipeline or the frontend.
 
+`scripts/load_export_to_postgis.py` is a throwaway, one-off validation script (story 1.7) that UPSERTs `data/export.geojson` into the `features` table (`db/Migrations`) to validate the PostGIS schema ahead of the real ingestion loader. It is explicitly not the real ingestion loader — a future epic replaces `fetch_data.py`'s `write_data()` with that — and is not wired into `osm-refresh.yml`. Delete it once the real loader lands.
+
 ### Frontend (`website/src/`)
 `bikemap-app.js` is the root Lit element. On `firstUpdated`, it creates the Mapbox GL map, adds `data/export.geojson` (fetched live from S3) as a single `cycling-data` GeoJSON source, and adds several style layers filtered/styled off the properties the pipeline computed:
 - `cycling-route-lines` / `cycling-route-symbols` — named bike routes (relations), colored by `cycle_network`
