@@ -4,3 +4,4 @@ website/dist
 .env
 bin/
 obj/
+data/export.geojson
