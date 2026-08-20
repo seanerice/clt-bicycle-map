@@ -50,6 +50,16 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+def pytest_configure(config):
+    # Registers the `slow` marker used by test_explain_index_usage.py
+    # (Story 1.9) so pytest doesn't warn about an unknown marker, and so
+    # `-m "not slow"` / `-m slow` deselection works. No pytest.ini/pyproject
+    # section exists in this repo yet, so this hook is the marker's home.
+    config.addinivalue_line(
+        "markers", "slow: marks tests as slow/optional (deselect with -m \"not slow\")"
+    )
+
+
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD")
 if not POSTGRES_PASSWORD:
     pytest.exit(

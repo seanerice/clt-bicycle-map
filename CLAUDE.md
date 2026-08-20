@@ -45,9 +45,13 @@ Run from `db/Migrations/` (the project directory) with the `db` service up and `
 ```
 cp .env.example .env       # first time only; sets POSTGRES_PASSWORD locally
 pip install -r scripts/requirements.txt
-POSTGRES_PASSWORD=<value from .env> pytest scripts/tests/test_persistence_integration.py
+POSTGRES_PASSWORD=<value from .env> pytest scripts/tests -m "not slow"   # fast path
+POSTGRES_PASSWORD=<value from .env> pytest scripts/tests                # full path, includes slow tests
 ```
-Runs against the docker-compose `db` service (per `docs/planning/layers/persistence-layer.md` §8) — a session-scoped fixture in `scripts/tests/conftest.py` runs `docker compose up -d db` and `dotnet ef database update` once, so a fresh `docker compose down -v` environment works with just the one `pytest` command above (both steps are idempotent, so it's also safe to run against a `db` that's already up and migrated). A small hand-written fixture set (not the full `data/export.geojson`) spanning `road`/`path`/`route` covers idempotent UPSERT (`first_seen_at` stable, `last_seen_at` advances on re-load), bbox query correctness (`&&` + `ST_Intersects`), and constraint rejection (`chk_features_geom_valid`, `ux_features_osm_key`) with assertions on the specific constraint name. Each test truncates `features` first for isolation — no cross-test state. There is no test suite for the frontend or the `fetch_data.py` pipeline.
+Runs against the docker-compose `db` service (per `docs/planning/layers/persistence-layer.md` §8) — a session-scoped fixture in `scripts/tests/conftest.py` runs `docker compose up -d db` and `dotnet ef database update` once, so a fresh `docker compose down -v` environment works with just the one `pytest` command above (both steps are idempotent, so it's also safe to run against a `db` that's already up and migrated). Each test truncates `features` first for isolation — no cross-test state. There is no test suite for the frontend or the `fetch_data.py` pipeline.
+
+- `test_persistence_integration.py` — a small hand-written fixture set (not the full `data/export.geojson`) spanning `road`/`path`/`route` covers idempotent UPSERT (`first_seen_at` stable, `last_seen_at` advances on re-load), bbox query correctness (`&&` + `ST_Intersects`), and constraint rejection (`chk_features_geom_valid`, `ux_features_osm_key`) with assertions on the specific constraint name.
+- `test_explain_index_usage.py` (story 1.9, optional per persistence-layer.md §8) — loads ~2000 synthetic rows scattered across a large lon/lat extent, runs `EXPLAIN (ANALYZE, FORMAT JSON)` on a selective bbox query, and asserts the plan uses an Index/Bitmap Index Scan on `idx_features_geom` rather than a `Seq Scan` on `features` — regression insurance against a future migration accidentally dropping/invalidating the spatial index. Marked `@pytest.mark.slow` (registered in `conftest.py`'s `pytest_configure` hook) since generating/loading thousands of rows is noticeably slower than the rest of the suite; excluded by `-m "not slow"` above, included by the plain `pytest scripts/tests` run.
 
 ## Architecture
 
