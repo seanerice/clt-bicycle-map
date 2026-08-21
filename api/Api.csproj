@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\db\Migrations\Migrations.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="NetTopologySuite.IO.GeoJSON4STJ" Version="4.0.0" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+    <PackageReference Include="Npgsql.NetTopologySuite" Version="10.0.3" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!--
+    The referenced db/Migrations/Migrations.csproj also ships its own
+    appsettings.json (CopyToOutputDirectory, used only by `dotnet ef`
+    design-time tooling — see db/Migrations/README.md). Project-to-project
+    references flow CopyToOutputDirectory items into the referencing
+    project's output, which collides with this project's own
+    appsettings.json at the same relative publish path (NETSDK1152). Drop
+    Migrations' copy so only api/appsettings*.json (the ones actually read
+    at runtime, see Program.cs) end up in the published output.
+  -->
+  <Target Name="ExcludeMigrationsAppSettingsFromPublish" BeforeTargets="_HandleFileConflictsForPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.RelativePath)' == 'appsettings.json' and !$([System.String]::Copy('%(ResolvedFileToPublish.FullPath)').StartsWith('$(MSBuildProjectDirectory)'))" />
+    </ItemGroup>
+  </Target>
+
+</Project>
