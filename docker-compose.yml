@@ -23,6 +23,7 @@ services:
     environment:
       ConnectionStrings__Postgis: "Host=db;Database=bikemap;Username=bikemap;Password=${POSTGRES_PASSWORD}"
       Cors__AllowedOrigin: "https://bikemap.seanerice.dev,http://localhost:8080"
+      Features__MaxBboxAreaDegrees: "2"
     ports:
       - "5000:8080"
     depends_on:
