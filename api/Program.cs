@@ -1,3 +1,6 @@
+using Api.Endpoints;
+using Api.Features;
+using Api.Geo;
 using BikeMap.Migrations;
 using NetTopologySuite.IO.Converters;
 using Npgsql;
@@ -38,11 +41,29 @@ builder.Services.AddSingleton(dataSource);
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new GeoJsonConverterFactory());
+
+    // GeoJsonFeature/GeoJsonFeatureCollection (api/Geo/) are the response
+    // types for GET /features — not NetTopologySuite.Features.Feature /
+    // FeatureCollection directly, because that library's own JSON
+    // converters have no way to carry a top-level GeoJSON Feature.id (see
+    // Geo/GeoJsonFeatureCollection.cs for why). Registered after
+    // GeoJsonConverterFactory so this converter's own calls back into
+    // JsonSerializer for the nested Geometry/IAttributesTable values still
+    // resolve to the NTS converters above.
+    options.SerializerOptions.Converters.Add(new GeoJsonFeatureConverter());
+    options.SerializerOptions.Converters.Add(new GeoJsonFeatureCollectionConverter());
 });
+
+// --- Story 2.7-2.10: GET /features dependencies.
+builder.Services.AddSingleton<FeaturesRepository>();
+builder.Services.AddSingleton<FeaturesService>();
+// BboxParser (Features/BboxParser.cs) is a static, dependency-free class —
+// nothing to register.
 
 var app = builder.Build();
 
-// No routes registered yet beyond ASP.NET Core's defaults — /features and
-// /health land in later stories (2.7-2.12).
+app.MapFeaturesEndpoints();
+
+// /health lands in a later story (2.12).
 
 app.Run();
