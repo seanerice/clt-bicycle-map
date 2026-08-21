@@ -93,3 +93,9 @@ app.MapFeaturesEndpoints();
 app.MapHealthEndpoints();
 
 app.Run();
+
+// Marker for WebApplicationFactory<Program> (Api.Tests/FeaturesEndpointsTests.cs,
+// Api.Tests/ContractTests.cs) — top-level statements compile into a private
+// implicit Program class, and the test host needs a public type to bind to.
+// Standard ASP.NET Core testing requirement, not a design change.
+public partial class Program { }
