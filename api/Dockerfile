@@ -15,6 +15,13 @@ RUN dotnet publish api/Api.csproj -c Release -o /app --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
+
+# curl is needed for docker-compose's healthcheck (curl -f http://localhost:8080/health)
+# — the base aspnet runtime image doesn't include it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app .
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Api.dll"]

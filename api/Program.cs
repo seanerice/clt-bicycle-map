@@ -34,6 +34,30 @@ var dataSource = dataSourceBuilder.Build();
 
 builder.Services.AddSingleton(dataSource);
 
+// --- Story 2.12: health check. AddNpgSql() with no arguments resolves the
+// NpgsqlDataSource singleton registered above from DI, so it exercises the
+// same connection pool / connection string as the rest of the app rather
+// than building a second one. Runs a real query against Postgres (not just
+// "is the process up") — see api/Endpoints/HealthEndpoints.cs for how the
+// result maps to a 200/503 HTTP response.
+builder.Services.AddHealthChecks().AddNpgSql();
+
+// --- Story 2.11: CORS. Allowed origin(s) come from Cors:AllowedOrigin
+// config (env var CORS__ALLOWEDORIGIN in docker-compose), comma-separated,
+// so local dev and prod can both point the API at the right frontend
+// origin(s) without a code change. See docs/planning/layers/api-layer.md §5.
+var allowedOrigins = (builder.Configuration["Cors:AllowedOrigin"]
+        ?? "https://bikemap.seanerice.dev,http://localhost:8080")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("frontend", policy =>
+        policy.WithOrigins(allowedOrigins)
+              .WithMethods("GET")
+              .AllowAnyHeader());
+});
+
 // --- GeoJSON System.Text.Json converters (NetTopologySuite.IO.GeoJSON4STJ)
 // registered against the JSON options minimal API's built-in JSON result
 // handling uses, so later stories' endpoints can return NTS Feature /
@@ -62,8 +86,10 @@ builder.Services.AddSingleton<FeaturesService>();
 
 var app = builder.Build();
 
-app.MapFeaturesEndpoints();
+// UseCors must run before endpoint mapping (api-layer.md §5).
+app.UseCors("frontend");
 
-// /health lands in a later story (2.12).
+app.MapFeaturesEndpoints();
+app.MapHealthEndpoints();
 
 app.Run();

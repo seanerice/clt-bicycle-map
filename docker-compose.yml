@@ -16,5 +16,24 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build:
+      context: .   # not ./api — Api.csproj references ../db/Migrations/Migrations.csproj, so the build context has to include the repo root (see api/Dockerfile).
+      dockerfile: api/Dockerfile
+    environment:
+      ConnectionStrings__Postgis: "Host=db;Database=bikemap;Username=bikemap;Password=${POSTGRES_PASSWORD}"
+      Cors__AllowedOrigin: "https://bikemap.seanerice.dev,http://localhost:8080"
+      Features__MaxBboxAreaDegrees: "2"
+    ports:
+      - "5000:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   pgdata:
