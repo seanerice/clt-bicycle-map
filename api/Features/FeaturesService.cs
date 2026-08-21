@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using Api.Geo;
 using BikeMap.Migrations;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using NetTopologySuite.Features;
 
 namespace Api.Features;
@@ -16,11 +18,13 @@ public sealed class FeaturesService
 {
     private readonly FeaturesRepository _repository;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<FeaturesService> _logger;
 
-    public FeaturesService(FeaturesRepository repository, IConfiguration configuration)
+    public FeaturesService(FeaturesRepository repository, IConfiguration configuration, ILogger<FeaturesService> logger)
     {
         _repository = repository;
         _configuration = configuration;
+        _logger = logger;
     }
 
     /// <summary>
@@ -29,6 +33,15 @@ public sealed class FeaturesService
     /// message on failure — mirrors <see cref="BboxParseResult"/>'s
     /// discriminated shape so <c>FeaturesEndpoints</c> doesn't need to
     /// re-derive the 400 message.
+    ///
+    /// Story 2.13: logs a successful request at Information (bbox, area,
+    /// feature count, duration in ms) and a rejected one at Warning with the
+    /// specific validation-failure reason — the same message that ends up in
+    /// the 400 body, per api-layer.md §8. Unhandled exceptions (e.g. the DB
+    /// being unreachable) are intentionally not caught here — they propagate
+    /// to ASP.NET Core's default hosting diagnostics, which already logs
+    /// them at Error with the full exception before the framework's default
+    /// 500 response is returned.
     /// </summary>
     public async Task<(GeoJsonFeatureCollection? Collection, string? Error)> GetFeaturesAsync(
         string? bboxValue,
@@ -37,16 +50,36 @@ public sealed class FeaturesService
         var parseResult = BboxParser.Parse(bboxValue, _configuration);
         if (!parseResult.Success)
         {
+            _logger.LogWarning(
+                "GET /features rejected: bbox={BboxValue} reason={Reason}",
+                bboxValue,
+                parseResult.Error);
             return (null, parseResult.Error);
         }
 
-        var rows = await _repository.QueryByBboxAsync(parseResult.Bbox!, cancellationToken);
+        var bbox = parseResult.Bbox!;
+        var areaSqDegrees = (bbox.MaxLon - bbox.MinLon) * (bbox.MaxLat - bbox.MinLat);
+
+        var stopwatch = Stopwatch.StartNew();
+        var rows = await _repository.QueryByBboxAsync(bbox, cancellationToken);
 
         var features = new List<GeoJsonFeature>(rows.Count);
         foreach (var row in rows)
         {
             features.Add(MapRow(row));
         }
+
+        stopwatch.Stop();
+
+        _logger.LogInformation(
+            "GET /features bbox={MinLon},{MinLat},{MaxLon},{MaxLat} areaSqDegrees={AreaSqDegrees} featureCount={FeatureCount} durationMs={DurationMs}",
+            bbox.MinLon,
+            bbox.MinLat,
+            bbox.MaxLon,
+            bbox.MaxLat,
+            areaSqDegrees,
+            features.Count,
+            stopwatch.Elapsed.TotalMilliseconds);
 
         return (new GeoJsonFeatureCollection(features), null);
     }
