@@ -59,7 +59,18 @@ export class CyclingDataSource {
         const controller = new AbortController();
         this._abortPreviousFetch?.();
         this._abortPreviousFetch = () => controller.abort();
-        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+        // Both the "superseded by a newer moveend" abort and the timeout
+        // abort below go through the same AbortController/signal (per §4 —
+        // a timeout is not a special case), which means both surface as the
+        // same `AbortError` in the catch block. `timedOut` is how we tell
+        // them apart: a supersede is expected and silent, a timeout is a
+        // real failure and must set _hasFetchError like any other error.
+        let timedOut = false;
+        const timeoutId = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, FETCH_TIMEOUT_MS);
 
         try {
             this._setLoadingState(true);
@@ -74,8 +85,8 @@ export class CyclingDataSource {
             this._mergeAndSetData(geojson);
             this._setErrorState(false);
         } catch (err) {
-            if (err.name === 'AbortError') {
-                // Superseded by a newer fetch (or timed out) — not a real error.
+            if (err.name === 'AbortError' && !timedOut) {
+                // Superseded by a newer fetch — not a real error.
                 return;
             }
             this._setErrorState(true);
@@ -103,4 +114,4 @@ export class CyclingDataSource {
     }
 }
 
-export { EMPTY_FEATURE_COLLECTION };
+export { EMPTY_FEATURE_COLLECTION, DEBOUNCE_INTERVAL_MS, BBOX_PADDING_FACTOR, FETCH_TIMEOUT_MS };
