@@ -10,6 +10,7 @@
   "author": "Sean Rice",
   "license": "ISC",
   "devDependencies": {
+    "dotenv": "^16.4.5",
     "html-loader": "^4.2.0",
     "html-webpack-plugin": "^5.5.3",
     "webpack": "^5.89.0",
