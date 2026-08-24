@@ -6,6 +6,9 @@ const BBOX_PADDING_FACTOR = 0.35;
 // A few seconds, per ui-layer.md §4 — timeout behaves identically to any
 // other fetch error (same AbortController/signal path, not a special case).
 const FETCH_TIMEOUT_MS = 8000;
+// Story 3.8: a single automatic retry is acceptable on a failed fetch, after
+// a short delay; beyond that, wait for the next moveend rather than looping.
+const RETRY_DELAY_MS = 1500;
 
 const EMPTY_FEATURE_COLLECTION = { type: 'FeatureCollection', features: [] };
 
@@ -18,18 +21,37 @@ const EMPTY_FEATURE_COLLECTION = { type: 'FeatureCollection', features: [] };
  * via `setData()`. There is no client-side region tracking or feature dedup.
  */
 export class CyclingDataSource {
-    constructor(map, { sourceId = 'cycling-data' } = {}) {
+    /**
+     * @param {object} [options]
+     * @param {string} [options.sourceId]
+     * @param {(state: { isLoadingFeatures: boolean, hasFetchError: boolean }) => void} [options.onStateChange]
+     *   Invoked whenever `isLoadingFeatures`/`hasFetchError` change, so a Lit
+     *   host (bikemap-app.js) can mirror them into its own reactive
+     *   properties and re-render (story 3.8). This class stays framework-
+     *   agnostic — it doesn't import Lit or drive rendering itself.
+     */
+    constructor(map, { sourceId = 'cycling-data', onStateChange } = {}) {
         this._map = map;
         this._sourceId = sourceId;
         this._abortPreviousFetch = null;
+        this._retryTimeoutId = null;
+        this._onStateChange = onStateChange;
 
-        // Internal state only (ui-layer.md §4) — not wired into any UI yet;
-        // that's story 3.8. Exposed as plain properties so a later PR can
-        // read them without needing to change this class's shape.
+        // Internal state (ui-layer.md §4), mirrored out via onStateChange
+        // above; also readable directly (and via the getters below) for
+        // tests/consumers that don't need reactivity.
         this._isLoadingFeatures = false;
         this._hasFetchError = false;
 
         this.scheduleFetch = debounce(() => this._fetchViewport(), DEBOUNCE_INTERVAL_MS);
+    }
+
+    get isLoadingFeatures() {
+        return this._isLoadingFeatures;
+    }
+
+    get hasFetchError() {
+        return this._hasFetchError;
     }
 
     /** Reads the current viewport and pads it by BBOX_PADDING_FACTOR. */
@@ -51,8 +73,19 @@ export class CyclingDataSource {
      * replaces the source's data. Aborts any still-in-flight previous fetch
      * first, so a fast pan-back can't have a stale, larger response overwrite
      * a newer, correct one by resolving second.
+     *
+     * @param {boolean} [isRetry] Internal — true when this call is the single
+     *   bounded retry (ui-layer.md §4) scheduled after a genuine failure, so
+     *   that attempt doesn't schedule a further retry of its own.
      */
-    async _fetchViewport() {
+    async _fetchViewport(isRetry = false) {
+        // A fresh fetch (a new moveend, debounced or not) supersedes any
+        // retry that was scheduled after an earlier failure.
+        if (this._retryTimeoutId !== null) {
+            clearTimeout(this._retryTimeoutId);
+            this._retryTimeoutId = null;
+        }
+
         const bbox = this._computeBbox();
         const zoom = this._map.getZoom();
 
@@ -91,6 +124,15 @@ export class CyclingDataSource {
             }
             this._setErrorState(true);
             console.error('Failed to fetch cycling data for viewport', err);
+
+            // Story 3.8: one bounded automatic retry after a short delay,
+            // then give up until the next moveend — no retry loop.
+            if (!isRetry) {
+                this._retryTimeoutId = setTimeout(() => {
+                    this._retryTimeoutId = null;
+                    this._fetchViewport(true);
+                }, RETRY_DELAY_MS);
+            }
         } finally {
             clearTimeout(timeoutId);
             this._setLoadingState(false);
@@ -106,12 +148,23 @@ export class CyclingDataSource {
     }
 
     _setLoadingState(isLoading) {
+        if (this._isLoadingFeatures === isLoading) return;
         this._isLoadingFeatures = isLoading;
+        this._notifyStateChange();
     }
 
     _setErrorState(hasError) {
+        if (this._hasFetchError === hasError) return;
         this._hasFetchError = hasError;
+        this._notifyStateChange();
+    }
+
+    _notifyStateChange() {
+        this._onStateChange?.({
+            isLoadingFeatures: this._isLoadingFeatures,
+            hasFetchError: this._hasFetchError
+        });
     }
 }
 
-export { EMPTY_FEATURE_COLLECTION, DEBOUNCE_INTERVAL_MS, BBOX_PADDING_FACTOR, FETCH_TIMEOUT_MS };
+export { EMPTY_FEATURE_COLLECTION, DEBOUNCE_INTERVAL_MS, BBOX_PADDING_FACTOR, FETCH_TIMEOUT_MS, RETRY_DELAY_MS };

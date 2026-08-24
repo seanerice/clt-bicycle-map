@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { CyclingDataSource, FETCH_TIMEOUT_MS } from './cycling-data-source.js';
+import { CyclingDataSource, FETCH_TIMEOUT_MS, RETRY_DELAY_MS } from './cycling-data-source.js';
 
 // API_BASE_URL is normally injected at build time by webpack's DefinePlugin
 // (see webpack.config.js). Vitest doesn't go through webpack, so provide the
@@ -89,5 +89,89 @@ describe('CyclingDataSource', () => {
 
         expect(source._hasFetchError).toBe(true);
         expect(source._isLoadingFeatures).toBe(false);
+    });
+
+    it('retries once after a failed fetch, and recovers if the retry succeeds', async () => {
+        vi.useFakeTimers();
+        const map = createFakeMap();
+        const source = new CyclingDataSource(map);
+        const stateChanges = [];
+        source._onStateChange = (state) => stateChanges.push({ ...state });
+
+        fetchMock.mockImplementationOnce(() => Promise.reject(new Error('network down')));
+        fetchMock.mockImplementationOnce(() =>
+            Promise.resolve({
+                ok: true,
+                json: async () => ({ type: 'FeatureCollection', features: [] })
+            })
+        );
+
+        const fetchPromise = source._fetchViewport();
+        await vi.advanceTimersByTimeAsync(0);
+        await fetchPromise;
+
+        // First attempt failed — error surfaced immediately, no retry yet.
+        expect(source._hasFetchError).toBe(true);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // The retry fires ~RETRY_DELAY_MS later and this time succeeds.
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS);
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(source._hasFetchError).toBe(false);
+    });
+
+    it('does not schedule a second retry when the retry attempt also fails', async () => {
+        vi.useFakeTimers();
+        const map = createFakeMap();
+        const source = new CyclingDataSource(map);
+
+        fetchMock.mockImplementation(() => Promise.reject(new Error('network down')));
+
+        const fetchPromise = source._fetchViewport();
+        await vi.advanceTimersByTimeAsync(0);
+        await fetchPromise;
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // Let the single retry run (and fail too).
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(source._hasFetchError).toBe(true);
+
+        // No further retries — even waiting well past another retry window,
+        // the call count doesn't grow again until a fresh _fetchViewport().
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * 5);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('cancels a pending retry when a new fetch is scheduled before it fires', async () => {
+        vi.useFakeTimers();
+        const map = createFakeMap();
+        const source = new CyclingDataSource(map);
+
+        fetchMock.mockImplementationOnce(() => Promise.reject(new Error('network down')));
+        fetchMock.mockImplementationOnce(() =>
+            Promise.resolve({
+                ok: true,
+                json: async () => ({ type: 'FeatureCollection', features: [] })
+            })
+        );
+
+        const firstFetch = source._fetchViewport();
+        await vi.advanceTimersByTimeAsync(0);
+        await firstFetch;
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // A new moveend-triggered fetch arrives before the retry timer fires.
+        const secondFetch = source._fetchViewport();
+        await vi.advanceTimersByTimeAsync(0);
+        await secondFetch;
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(source._hasFetchError).toBe(false);
+
+        // The now-cancelled original retry must not fire a third fetch later.
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * 2);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 });
