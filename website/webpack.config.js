@@ -23,6 +23,13 @@ module.exports = {
         static: './dist',
         hot: false,
         watchFiles: ['src/**/*.js'],
+        // The dev-server client's error-overlay iframe is injected into the
+        // page (even with hot:false) and sits on top of everything, which
+        // intercepts pointer events during Playwright's E2E suite
+        // (website/e2e/ — stories 3.9/3.10, run against this dev server per
+        // playwright.config.js). Dev-server-only setting; has no effect on
+        // `npm run build`'s production bundle.
+        client: { overlay: false },
     },
     module: {
         rules: [

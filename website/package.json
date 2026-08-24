@@ -6,11 +6,13 @@
   "scripts": {
     "start": "webpack serve",
     "build": "webpack",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "author": "Sean Rice",
   "license": "ISC",
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "dotenv": "^16.4.5",
     "html-loader": "^4.2.0",
     "html-webpack-plugin": "^5.5.3",
