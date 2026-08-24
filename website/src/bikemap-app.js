@@ -270,12 +270,17 @@ export class BikeMapApp extends LitElement {
             });
 
             this._cyclingDataSource = new CyclingDataSource(map, {
-                onStateChange: ({ isLoadingFeatures, hasFetchError }) => {
+                onStateChange: ({ isLoadingFeatures, hasFetchError, errorJustOccurred }) => {
                     this._isLoadingFeatures = isLoadingFeatures;
                     this._hasFetchError = hasFetchError;
-                    // A fresh failure should re-surface the notice even if
-                    // an earlier one was dismissed.
-                    if (hasFetchError) {
+                    // Only a genuinely new failure (false→true) should
+                    // re-surface a dismissed notice. Checking plain
+                    // `hasFetchError` here would be wrong: an unrelated
+                    // notification (e.g. the bounded retry's own
+                    // loading-state toggle) can fire while hasFetchError is
+                    // still true from an earlier, still-active failure, and
+                    // that must not silently un-dismiss the notice.
+                    if (errorJustOccurred) {
                         this._errorDismissed = false;
                     }
                 }

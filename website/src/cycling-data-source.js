@@ -24,11 +24,18 @@ export class CyclingDataSource {
     /**
      * @param {object} [options]
      * @param {string} [options.sourceId]
-     * @param {(state: { isLoadingFeatures: boolean, hasFetchError: boolean }) => void} [options.onStateChange]
+     * @param {(state: { isLoadingFeatures: boolean, hasFetchError: boolean, errorJustOccurred: boolean }) => void} [options.onStateChange]
      *   Invoked whenever `isLoadingFeatures`/`hasFetchError` change, so a Lit
      *   host (bikemap-app.js) can mirror them into its own reactive
      *   properties and re-render (story 3.8). This class stays framework-
      *   agnostic — it doesn't import Lit or drive rendering itself.
+     *   `errorJustOccurred` is only true on the notification where
+     *   `hasFetchError` just flipped false→true (a genuinely new failure) —
+     *   see `_notifyStateChange` — so a host can use it to decide whether to
+     *   re-surface an error notice the user previously dismissed, without
+     *   the notice un-dismissing itself on every unrelated state change
+     *   (e.g. a loading-state toggle) that happens to occur while an error
+     *   is still active.
      */
     constructor(map, { sourceId = 'cycling-data', onStateChange } = {}) {
         this._map = map;
@@ -156,13 +163,27 @@ export class CyclingDataSource {
     _setErrorState(hasError) {
         if (this._hasFetchError === hasError) return;
         this._hasFetchError = hasError;
-        this._notifyStateChange();
+        // This setter only ever runs when hasFetchError actually changed
+        // (guarded above), so hasError === true here always means a genuine
+        // false→true transition — a *new* failure, not a still-failing
+        // state re-notifying because something else (loading) changed.
+        this._notifyStateChange({ errorJustOccurred: hasError });
     }
 
-    _notifyStateChange() {
+    /**
+     * @param {{ errorJustOccurred?: boolean }} [extra] `errorJustOccurred`
+     *   is true only when this notification is the one where hasFetchError
+     *   just flipped false→true — never merely "hasFetchError happens to be
+     *   true right now" (e.g. a loading-state toggle during a still-failing
+     *   retry must not report this as true). A host uses this to decide
+     *   whether to re-surface a dismissed error notice.
+     */
+    _notifyStateChange(extra = {}) {
         this._onStateChange?.({
             isLoadingFeatures: this._isLoadingFeatures,
-            hasFetchError: this._hasFetchError
+            hasFetchError: this._hasFetchError,
+            errorJustOccurred: false,
+            ...extra
         });
     }
 }

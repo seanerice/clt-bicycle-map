@@ -174,4 +174,71 @@ describe('CyclingDataSource', () => {
         await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * 2);
         expect(fetchMock).toHaveBeenCalledTimes(2);
     });
+
+    it('flags errorJustOccurred only on a genuine false→true transition, not on every notification while an error persists', async () => {
+        // Regression test: a consumer (bikemap-app.js) resets a user's
+        // "dismissed" flag only when errorJustOccurred is true. The bug this
+        // guards against was resetting it whenever hasFetchError happened to
+        // be true at notification time — including notifications caused by
+        // an unrelated state change (the bounded retry's own loading-state
+        // toggle) while the *same* still-active failure was ongoing. That
+        // silently un-dismissed a notice the user had just closed, ~1.5s
+        // later, with no new failure and no user action.
+        vi.useFakeTimers();
+        const map = createFakeMap();
+        const source = new CyclingDataSource(map);
+
+        // Mirrors bikemap-app.js's onStateChange consumer logic exactly.
+        let errorDismissed = false;
+        let hasFetchError = false;
+        source._onStateChange = (state) => {
+            hasFetchError = state.hasFetchError;
+            if (state.errorJustOccurred) {
+                errorDismissed = false;
+            }
+        };
+
+        // First failure; its bounded retry will also fail (error persists
+        // throughout, this is not a new/distinct failure).
+        fetchMock.mockImplementation(() => Promise.reject(new Error('network down')));
+
+        const fetchPromise = source._fetchViewport();
+        await vi.advanceTimersByTimeAsync(0);
+        await fetchPromise;
+        expect(hasFetchError).toBe(true);
+
+        // User dismisses right after the first failure, before the retry fires.
+        errorDismissed = true;
+
+        // Let the bounded retry run to completion (it fails too) — its own
+        // loading-state true→false→true→false toggling must not
+        // re-flag errorJustOccurred, since hasFetchError never actually
+        // transitioned from false during this window.
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(hasFetchError).toBe(true);
+        expect(errorDismissed).toBe(true); // must still be dismissed
+
+        // A genuinely new, distinct failure (after a recovery in between)
+        // must still be able to re-surface a dismissed notice.
+        fetchMock.mockImplementationOnce(() =>
+            Promise.resolve({
+                ok: true,
+                json: async () => ({ type: 'FeatureCollection', features: [] })
+            })
+        );
+        const recoverFetch = source._fetchViewport();
+        await vi.advanceTimersByTimeAsync(0);
+        await recoverFetch;
+        expect(hasFetchError).toBe(false);
+
+        fetchMock.mockImplementation(() => Promise.reject(new Error('network down again')));
+        const freshFailure = source._fetchViewport();
+        await vi.advanceTimersByTimeAsync(0);
+        await freshFailure;
+
+        expect(hasFetchError).toBe(true);
+        expect(errorDismissed).toBe(false); // reappeared on the new failure
+    });
 });
