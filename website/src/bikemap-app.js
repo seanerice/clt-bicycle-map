@@ -9,6 +9,7 @@ import { bicycleFacilityRatingColor, roadwayPalette } from './colors.js';
 import { baseStyles } from "./styles";
 import './mwc-icon.js';
 import './location-search-menu.js';
+import { CyclingDataSource, EMPTY_FEATURE_COLLECTION } from './cycling-data-source.js';
 
 export class BikeMapApp extends LitElement {
     _mapProvider = new ContextProvider(this, { context: mapContext });
@@ -35,7 +36,7 @@ export class BikeMapApp extends LitElement {
 
             map.addSource('cycling-data', {
                 type: 'geojson',
-                data: 'https://data.bikemap.seanerice.dev/export.geojson'
+                data: EMPTY_FEATURE_COLLECTION
             });
 
             map.addLayer({
@@ -254,6 +255,10 @@ export class BikeMapApp extends LitElement {
                     ]
                 }
             });
+
+            this._cyclingDataSource = new CyclingDataSource(map);
+            map.on('moveend', () => this._cyclingDataSource.scheduleFetch());
+            this._cyclingDataSource.scheduleFetch(); // moveend doesn't fire for the initial view
         });
     }
 
