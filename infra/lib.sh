@@ -1,0 +1,68 @@
+# infra/lib.sh
+#
+# Shared constants and small helpers sourced by every script under
+# infra/backend/ and infra/frontend/. Not meant to be run directly (it
+# has no shebang and does nothing on its own — `source` it).
+#
+# IMPORTANT: these scripts are written and statically verified only, as
+# part of stories 8.1/8.2 (see infra/README.md). They are not executed
+# against the real AWS account until stories 8.5/8.6.
+
+# Region backend resources (EC2, security group, IAM, SSM parameter)
+# live in. Matches the existing legacy EC2 box's region
+# (docs/planning/deployment.md §1), so this lines up with whatever
+# region the operator's aws-cli is already pointed at. Override with:
+#   AWS_REGION=us-west-2 ./01-iam-role.sh
+AWS_REGION="${AWS_REGION:-us-east-1}"
+export AWS_REGION
+
+# Every resource these scripts create is tagged with this, so it's easy
+# to find/audit later, and so idempotent lookups can filter on it rather
+# than hardcoding resource IDs.
+PROJECT_TAG_KEY="Project"
+PROJECT_TAG_VALUE="bikemap"
+
+# --- Backend (story 8.1) resource names ---
+BACKEND_NAME="bikemap-backend"
+IAM_ROLE_NAME="bikemap-backend-role"
+IAM_INSTANCE_PROFILE_NAME="bikemap-backend-instance-profile"
+IAM_SCOPED_POLICY_NAME="bikemap-backend-scoped-permissions"
+SECURITY_GROUP_NAME="bikemap-backend-sg"
+SSM_PARAM_NAME="/bikemap/prod/POSTGRES_PASSWORD"
+EIP_NAME="bikemap-backend-eip"
+INSTANCE_TYPE="t4g.micro"
+
+# The EXISTING data-pipeline bucket (unchanged, out of scope — see
+# CLAUDE.md / deployment.md §1). The backend instance role is scoped to
+# write only under db-backups/ in this bucket for nightly pg_dump
+# uploads. This is NOT the frontend bucket below — that's a different,
+# new bucket story 8.2 creates.
+DATA_BUCKET_NAME="bikemap"
+DB_BACKUPS_PREFIX="db-backups"
+
+# --- Frontend (story 8.2) resource names ---
+FRONTEND_BUCKET_NAME="bikemap-frontend"
+FRONTEND_DOMAIN="bikemap.seanerice.dev"
+CLOUDFRONT_COMMENT="bikemap-frontend"
+OAC_NAME="bikemap-frontend-oac"
+
+# CloudFront requires ACM certificates to be requested in us-east-1
+# specifically, no matter what region the distribution, the bucket, or
+# $AWS_REGION above are. This is hardcoded (not derived from
+# $AWS_REGION) so the frontend scripts do the right thing even if
+# someone runs the rest of infra/ with AWS_REGION set elsewhere. See
+# infra/frontend/02-acm-certificate.sh for the long version.
+ACM_REGION="us-east-1"
+
+require_aws_cli() {
+  if ! command -v aws >/dev/null 2>&1; then
+    echo "error: aws-cli not found on PATH" >&2
+    exit 1
+  fi
+}
+
+# Prints the caller's AWS account ID. Used to build fully-qualified ARNs
+# for scoped IAM/S3 policies.
+account_id() {
+  aws sts get-caller-identity --query Account --output text
+}

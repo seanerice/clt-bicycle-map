@@ -1,0 +1,6 @@
+# Shell scripts must keep LF line endings regardless of the checking-out
+# platform's core.autocrlf setting. This matters concretely for
+# infra/backend/user-data.sh: infra/backend/04-launch-instance.sh passes
+# it to `aws ec2 run-instances --user-data file://...` verbatim, and a
+# CRLF shebang/script breaks under cloud-init on the Linux instance.
+*.sh text eol=lf
