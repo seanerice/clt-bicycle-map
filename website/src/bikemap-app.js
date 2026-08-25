@@ -1,5 +1,5 @@
 import { ContextProvider } from "@lit/context";
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { mapContext } from "./mapContext";
 import mapboxgl from "mapbox-gl";
 import './layer-widget.js';
@@ -14,9 +14,22 @@ import { CyclingDataSource, EMPTY_FEATURE_COLLECTION } from './cycling-data-sour
 export class BikeMapApp extends LitElement {
     _mapProvider = new ContextProvider(this, { context: mapContext });
 
+    // Mirrored from CyclingDataSource's onStateChange callback (story 3.8) —
+    // see firstUpdated() below. Plain Lit reactive properties, no external
+    // state-management dependency. Deliberately *not* given class-field
+    // defaults here (unlike _mapProvider above): a `foo = false` class field
+    // uses define-semantics and would shadow the reactive accessor Lit
+    // installs on the prototype for properties declared below, silently
+    // breaking reactivity. undefined is falsy, which is all render() needs.
     static get properties() {
         return {
-            _showDirectionsWidget: { type: Boolean }
+            _showDirectionsWidget: { type: Boolean },
+            _isLoadingFeatures: { type: Boolean },
+            _hasFetchError: { type: Boolean },
+            // Separate from _hasFetchError so dismissing the notice doesn't
+            // require the underlying error to clear — it can reappear on a
+            // subsequent failure even if an earlier one was dismissed.
+            _errorDismissed: { type: Boolean }
         };
     }
 
@@ -256,7 +269,22 @@ export class BikeMapApp extends LitElement {
                 }
             });
 
-            this._cyclingDataSource = new CyclingDataSource(map);
+            this._cyclingDataSource = new CyclingDataSource(map, {
+                onStateChange: ({ isLoadingFeatures, hasFetchError, errorJustOccurred }) => {
+                    this._isLoadingFeatures = isLoadingFeatures;
+                    this._hasFetchError = hasFetchError;
+                    // Only a genuinely new failure (false→true) should
+                    // re-surface a dismissed notice. Checking plain
+                    // `hasFetchError` here would be wrong: an unrelated
+                    // notification (e.g. the bounded retry's own
+                    // loading-state toggle) can fire while hasFetchError is
+                    // still true from an earlier, still-active failure, and
+                    // that must not silently un-dismiss the notice.
+                    if (errorJustOccurred) {
+                        this._errorDismissed = false;
+                    }
+                }
+            });
             map.on('moveend', () => this._cyclingDataSource.scheduleFetch());
             this._cyclingDataSource.scheduleFetch(); // moveend doesn't fire for the initial view
         });
@@ -379,6 +407,42 @@ export class BikeMapApp extends LitElement {
                 display: block;
                 background: rgba(0, 0, 0, 0.5);
             }
+
+            .loading-bar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 3px;
+                z-index: 300;
+                background: linear-gradient(90deg, transparent, #3964C4, transparent);
+                background-size: 200% 100%;
+                animation: loading-bar-sweep 1.2s ease-in-out infinite;
+            }
+
+            @keyframes loading-bar-sweep {
+                0% { background-position: 200% 0; }
+                100% { background-position: -200% 0; }
+            }
+
+            .fetch-error-notice {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 300;
+                max-width: calc(100% - 40px);
+                padding: 0.5rem 0.5rem 0.5rem 1rem;
+                background: white;
+                border-radius: 3px;
+            }
+
+            .fetch-error-notice mwc-icon {
+                --mdc-icon-size: 1.2rem;
+            }
         `
     ];
 
@@ -395,8 +459,31 @@ export class BikeMapApp extends LitElement {
         this.shadowRoot.getElementById('location-search-menu').show();
     }
 
+    _handleDismissError() {
+        this._errorDismissed = true;
+    }
+
     render() {
         return html`
+            ${this._isLoadingFeatures
+                ? html`<div class="loading-bar" role="status" aria-label="Loading map data"></div>`
+                : nothing}
+
+            ${this._hasFetchError && !this._errorDismissed
+                ? html`
+                    <div class="fetch-error-notice height-2" role="alert">
+                        <span>Couldn't refresh map data — showing last known view</span>
+                        <button
+                            class="nostyle"
+                            aria-label="Dismiss"
+                            @click=${this._handleDismissError}
+                        >
+                            <mwc-icon icon="close"></mwc-icon>
+                        </button>
+                    </div>
+                `
+                : nothing}
+
             <input type="checkbox" id="menu-checkbox">
             <label for="menu-checkbox">
                 <mwc-icon id="menu-button" icon="menu" class="height-1"></mwc-icon>
@@ -413,7 +500,7 @@ export class BikeMapApp extends LitElement {
             <mapbox-navigation id="navigation"
                 @location-input-focused=${this._handleLocationInputFocused}
             ></mapbox-navigation>
-            
+
             <div class="menu-scrim"></div>
             <div class="menu-bar height-1">
                 <div class="menu">
