@@ -122,7 +122,7 @@ Phase 3 retires the old box's spend — this month's actuals (§1) scaled to a f
 
 ## 6. Open follow-ups
 
-- **GHCR image visibility**: if the `api` package ends up private, the EC2 box needs a read-only GHCR PAT (stored in SSM alongside `POSTGRES_PASSWORD`) to `docker pull`. If the repo's already public, this is moot — worth confirming which before Phase 1 step 4.
+- ~~**GHCR image visibility**~~ — **resolved: the repo is public**, so the `api` GHCR package can be public too. No pull token needed on the EC2 box.
 - **`osm-refresh.yml`'s long-lived AWS keys** — not migrated to OIDC as part of this plan, but the new OIDC role setup makes it a small follow-up later.
 - **Backup restore drill** — the plan adds backups but doesn't yet include actually testing a restore. Worth doing once, after Phase 2, so "we have backups" isn't untested.
 - **Monitoring/alerting** — out of scope here (ties into [Epic 6](./epics.md#epic-6--observability-data-quality--abuse-protection-cross-cutting)); the health check endpoint exists but nothing currently polls it in prod.
