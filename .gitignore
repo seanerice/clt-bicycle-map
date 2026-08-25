@@ -11,3 +11,4 @@ website/playwright-report/
 website/test-results/
 website/blob-report/
 website/playwright/.cache/
+nginx/certs/
