@@ -1,0 +1,305 @@
+name: Deploy
+
+# Story 8.4 (docs/planning/stories.md) / deployment.md §3 "CI/CD".
+#
+# Triggers on push to `main` (the branch this migration's deploy target
+# ultimately tracks) and on workflow_dispatch (used for story 8.7's first
+# real, manual-trigger run once 8.5/8.6's AWS resources actually exist).
+# The `deploy` job additionally guards with `if: github.ref ==
+# 'refs/heads/main'` so a workflow_dispatch fired from any other branch
+# can't accidentally deploy.
+#
+# IMPORTANT: as of story 8.4, this workflow is written and statically
+# reviewed only (valid YAML, actionlint if available, code review against
+# the acceptance criteria in stories.md). It is not triggered for a real
+# run here — it can't be yet, since the deploy job targets the EC2
+# instance, S3 bucket, and CloudFront distribution that stories 8.5/8.6
+# create. Story 8.7 is where this workflow actually executes for the
+# first time.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test-website:
+    name: Test website (Vitest + Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests (Vitest)
+        run: npm test
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests (Playwright)
+        # Mocks the /features bbox API and Mapbox's own APIs via
+        # page.route() (website/e2e/) and starts its own dev server
+        # (website/playwright.config.js's webServer block) — no
+        # docker-compose stack needed here.
+        run: npm run test:e2e
+
+  test-api:
+    name: Test api (dotnet test)
+    runs-on: ubuntu-latest
+    env:
+      # CI-only value — DatabaseFixture (Api.Tests/DatabaseFixture.cs)
+      # self-manages `docker compose up -d db` and EF Core migrations, and
+      # just needs POSTGRES_PASSWORD set in the process environment before
+      # the test run starts.
+      POSTGRES_PASSWORD: ci-test-password
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install dotnet-ef
+        # DatabaseFixture shells out to `dotnet ef database update` (in
+        # db/Migrations/) — needs the dotnet-ef global tool on PATH first,
+        # same as scripts/tests/conftest.py's equivalent Python-side fixture.
+        run: |
+          dotnet tool install --global dotnet-ef --version 8.*
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Run api tests
+        # Docker is preinstalled on GitHub's ubuntu-latest runners — no
+        # extra setup needed for DatabaseFixture's `docker compose up -d db`.
+        run: dotnet test Api.Tests/Api.Tests.csproj
+
+  test-scripts:
+    name: Test scripts (pytest)
+    runs-on: ubuntu-latest
+    env:
+      # Same CI-only value as test-api, and for the same reason:
+      # scripts/tests/conftest.py's _db_ready fixture also brings up
+      # `docker compose up -d db` and runs `dotnet ef database update`.
+      POSTGRES_PASSWORD: ci-test-password
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          # Matches osm-refresh.yml's existing setup-python version pin.
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scripts/requirements.txt
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install dotnet-ef
+        # conftest.py's _db_ready fixture shells out to
+        # `dotnet ef database update` the same way DatabaseFixture.cs does.
+        run: |
+          dotnet tool install --global dotnet-ef --version 8.*
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Run scripts tests
+        run: pytest scripts/tests -m "not slow"
+
+  deploy:
+    name: Build, push, and deploy
+    # A failing test in any of the three jobs above blocks every step
+    # below — this `needs:` list is the job-dependency structure the
+    # story's acceptance criteria call out as the thing to check.
+    needs: [test-website, test-api, test-scripts]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write # required for aws-actions/configure-aws-credentials OIDC
+      packages: write # required to push to GHCR
+    env:
+      API_BASE_URL: https://api.bikemap.seanerice.dev
+      GHCR_IMAGE: ghcr.io/seanerice/clt-bicycle-map-api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- Step 1: build the api image for arm64 (matches the t4g.micro
+      #     / Graviton backend instance from story 8.1) and push to GHCR. ---
+
+      - name: Set up QEMU
+        # GitHub's hosted runners are x86 — this lets buildx cross-build
+        # for linux/arm64 under emulation. Slower than a native build, but
+        # there's only one image, so the absolute cost is small.
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push api image (arm64)
+        uses: docker/build-push-action@v6
+        with:
+          # Build context is the repo root, not api/ — Api.csproj
+          # references ../db/Migrations/Migrations.csproj (see
+          # api/Dockerfile's own header comment), so the build context has
+          # to include the repo root.
+          context: .
+          file: api/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.GHCR_IMAGE }}:${{ github.sha }}
+            ${{ env.GHCR_IMAGE }}:latest
+
+      # --- Step 2: build the frontend with the prod API_BASE_URL baked in. ---
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: website
+        # website/webpack.config.js reads process.env.API_BASE_URL directly
+        # and bakes it into the bundle via DefinePlugin. API_BASE_URL is set
+        # job-wide above (https://api.bikemap.seanerice.dev) specifically so
+        # the local-dev default (http://localhost:5000) can't leak into
+        # this build.
+        run: npm run build
+
+      # --- AWS auth for everything below: GitHub OIDC via
+      #     infra/cicd/01-github-oidc-role.sh's role, never static keys. ---
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      # --- Step 3: sync the frontend build to S3 + CloudFront invalidation. ---
+
+      - name: Sync frontend build to S3
+        # Mirrors the sync pattern osm-refresh.yml already uses for the
+        # (different, existing) `bikemap` data bucket — same `aws s3 sync
+        # --delete` shape, different bucket, OIDC-derived credentials
+        # instead of osm-refresh.yml's static keys.
+        run: aws s3 sync website/dist s3://bikemap-frontend/ --delete
+
+      - name: Look up CloudFront distribution ID
+        id: cloudfront
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='bikemap-frontend'].Id | [0]" \
+            --output text)
+          if [ -z "$DIST_ID" ] || [ "$DIST_ID" = "None" ]; then
+            echo "::error::No CloudFront distribution found with Comment=bikemap-frontend (has story 8.6 run yet?)"
+            exit 1
+          fi
+          echo "dist_id=$DIST_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.cloudfront.outputs.dist_id }}" \
+            --paths "/*"
+
+      # --- Step 4: deploy + migrate on the backend instance via SSM. ---
+
+      - name: Look up backend instance ID
+        id: backend
+        run: |
+          # Same filter pattern infra/backend/04-launch-instance.sh already
+          # uses to find this instance idempotently.
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=bikemap-backend" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" --output text)
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "::error::No running EC2 instance found tagged Name=bikemap-backend (has story 8.5 run yet?)"
+            exit 1
+          fi
+          echo "instance_id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy + migrate via SSM
+        run: |
+          # /opt/bikemap is a placeholder for wherever story 8.5's EC2
+          # user-data actually clones/places the repo on the box — that
+          # detail isn't pinned down yet (8.5's job, not this workflow's).
+          # Update this path if/when 8.5 lands somewhere else.
+          #
+          # Known gap (not fixed here — docker-compose.yml/
+          # docker-compose.prod.yml are out of scope for story 8.4, see its
+          # "what not to touch" list): docker-compose.yml's `api` service
+          # currently only defines `build:`, not `image:`, so `docker
+          # compose pull` will skip it with a warning, and `up -d api`
+          # will build locally on the box from the Dockerfile already
+          # there rather than pulling the arm64 image just pushed to GHCR
+          # above. Worth fixing (adding `image:
+          # ghcr.io/seanerice/clt-bicycle-map-api:latest` to the `api`
+          # service) before or during story 8.5/8.7.
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.backend.outputs.instance_id }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "bikemap deploy ${{ github.sha }}" \
+            --parameters commands='[
+              "cd /opt/bikemap",
+              "docker compose pull",
+              "docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrator",
+              "docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d api nginx"
+            ]' \
+            --query "Command.CommandId" --output text)
+
+          echo "SSM command $COMMAND_ID sent, polling for completion..."
+
+          STATUS="Pending"
+          while [ "$STATUS" = "Pending" ] || [ "$STATUS" = "InProgress" ] || [ "$STATUS" = "Delayed" ]; do
+            sleep 5
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "${{ steps.backend.outputs.instance_id }}" \
+              --query "Status" --output text)
+            echo "Status: $STATUS"
+          done
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "::error::SSM deploy command finished with status $STATUS"
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "${{ steps.backend.outputs.instance_id }}" \
+              --query "{StandardOutputContent:StandardOutputContent,StandardErrorContent:StandardErrorContent}"
+            exit 1
+          fi
+
+          echo "Deploy succeeded."
