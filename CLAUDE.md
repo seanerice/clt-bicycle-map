@@ -16,9 +16,14 @@ There is no application server. The frontend fetches a single static GeoJSON fil
 
 ### Frontend (`website/`)
 ```
-npm run start   # webpack dev server
-npm run build   # production build to website/dist
+npm run start     # webpack dev server
+npm run build     # production build to website/dist
+npm test          # Vitest unit tests (website/src/**/*.test.js)
+npm run test:e2e  # Playwright E2E suite (website/e2e/) — mocks the bbox API and
+                   # Mapbox's own Geocoding/Directions APIs via page.route(), so it
+                   # needs no docker-compose stack; runs against `npm run start`
 ```
+`npm run test:e2e` requires Playwright's Chromium browser once per machine: `npx playwright install chromium` (downloads to a global cache, not the repo).
 
 ### Data pipeline (`scripts/`)
 ```
