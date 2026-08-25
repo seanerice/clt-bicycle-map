@@ -1,0 +1,65 @@
+# Production override for docker-compose.yml — story 8.3
+# (docs/planning/deployment.md §3 "Backend: EC2 + docker-compose").
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrator
+#
+# Do NOT combine with docker-compose.override.yml — local dev's `docker
+# compose up` (no -f flags) auto-loads docker-compose.yml +
+# docker-compose.override.yml and keeps the 5432/5000 host port publishes;
+# explicitly passing `-f docker-compose.yml -f docker-compose.prod.yml`
+# (as above) never picks up docker-compose.override.yml, so the two
+# workflows don't collide.
+#
+# Removing db's/api's host port publishes: Compose's file-merge behavior
+# concatenates list-type keys (like `ports`) across `-f` files rather than
+# replacing them, so simply omitting `ports:` here would NOT remove
+# docker-compose.yml's 5432:5432 / 5000:8080 publishes — `docker compose
+# config` would still show both. Verified empirically (`docker compose
+# version` -> v5.3.1, well past the v2.24 minimum) that the Compose
+# Specification's `!reset` YAML tag works here: `!reset []` clears the
+# base file's list for that key entirely on merge, confirmed via
+# `docker compose -f docker-compose.yml -f docker-compose.prod.yml config`
+# showing no 5432/5000 anywhere. This is the preferred approach because it
+# needs zero changes to the existing docker-compose.yml (the fallback,
+# per the story's plan, would have been moving those port mappings into a
+# new docker-compose.override.yml instead).
+services:
+  db:
+    ports: !reset []
+
+  api:
+    ports: !reset []
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # One-shot EF Core migration runner — intended to be run explicitly
+  # (`docker compose -f docker-compose.yml -f docker-compose.prod.yml run
+  # --rm migrator`), not left running. It has no restart policy, so a
+  # normal `up -d` that happens to include it will just run it once to
+  # completion (exit 0) and leave it stopped — that's expected, not a
+  # failure.
+  migrator:
+    build:
+      context: .   # matches api's build context — see db/Migrations/Dockerfile's header comment.
+      dockerfile: db/Migrations/Dockerfile
+    environment:
+      # DesignTimeDbContextFactory (db/Migrations/DesignTimeDbContextFactory.cs)
+      # checks BIKEMAP_CONNECTION_STRING first, overriding the committed
+      # appsettings.json default (Host=localhost;...), which is wrong for
+      # a container reaching `db` over the compose-internal network.
+      BIKEMAP_CONNECTION_STRING: "Host=db;Port=5432;Database=bikemap;Username=bikemap;Password=${POSTGRES_PASSWORD}"
+    depends_on:
+      db:
+        condition: service_healthy

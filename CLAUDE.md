@@ -46,6 +46,14 @@ dotnet ef database update   # applies pending EF Core migrations to the `db` ser
 ```
 Run from `db/Migrations/` (the project directory) with the `db` service up and `POSTGRES_PASSWORD` set in the environment (`db/Migrations` reads it the same way docker-compose does — see `db/Migrations/README.md`). This is a minimal class library that exists only to host EF Core migration tooling (`BikeMapDbContext`) ahead of the future `api/` project — see `db/Migrations/README.md` for why it's scaffolded separately and early. `BikeMapDbContext` registers one entity, `Feature` (table `features`, mapped to `docs/planning/layers/persistence-layer.md` §1.1) — `feature_type` is a real Postgres enum (`feature_type_enum`), mapped to the `FeatureType` C# enum via Npgsql's `HasPostgresEnum`/`MapEnum`.
 
+### Prod-like deploy, run locally (`docker-compose.prod.yml`)
+```
+bash nginx/generate-dev-cert.sh                                          # first time only; self-signed dev cert, see nginx/README.md
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d    # db + api + nginx
+docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrator   # one-shot: applies pending EF Core migrations
+```
+`docker-compose.prod.yml` (repo root, story 8.3) layers onto `docker-compose.yml` to approximate the EC2 target described in `docs/planning/deployment.md` §3: it clears `db`'s and `api`'s host port publishes (`ports: !reset []` — the Compose Specification's reset tag, since Compose otherwise concatenates `-f` files' `ports:` lists rather than replacing them) so only the new `nginx` service exposes 80/443, adds that `nginx` service (`nginx/` — reverse-proxies `api.bikemap.seanerice.dev` → `api:8080`, TLS via a cert bind-mounted from `nginx/certs/`, git-ignored), and adds the `migrator` service (`db/Migrations/Dockerfile`, new — a single-stage SDK image with `dotnet-ef` installed, entrypoint `dotnet ef database update`). `migrator` is meant to be run one-shot (`run --rm`), not left running — it has no restart policy, so it's harmless if it also starts and exits during a plain `up -d`. This compose file is what the future CI/CD workflow (story 8.4) deploys as-is; the only thing story 8.7 swaps is the self-signed cert in `nginx/certs/` for a real Cloudflare Origin CA cert (see `nginx/README.md`) — everything else here already matches prod.
+
 ### Persistence-layer integration tests (`scripts/tests/`)
 ```
 cp .env.example .env       # first time only; sets POSTGRES_PASSWORD locally
