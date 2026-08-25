@@ -96,14 +96,50 @@ with it. Run in this order:
    requests can read the bucket, while the bucket's public-access-block
    settings from step 1 stay fully enabled.
 
+## `infra/cicd/` — story 8.4
+
+Independent of `infra/backend/` and `infra/frontend/` — provisions the
+GitHub Actions side of deployment rather than an app resource.
+
+1. **`01-github-oidc-role.sh`** — creates the GitHub OIDC identity
+   provider (`token.actions.githubusercontent.com`, audience
+   `sts.amazonaws.com`) if the account doesn't already have one, and an
+   IAM role (`bikemap-github-actions-deploy-role`) that
+   [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
+   assumes via `aws-actions/configure-aws-credentials`'s
+   `role-to-assume`, instead of any long-lived
+   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secret. The role's trust
+   policy `Principal` is the OIDC provider itself, and its `Condition`
+   restricts the token's `sub` claim to `repo:seanerice/clt-bicycle-map:*`
+   — this specific repo, any ref/branch within it, but never a wildcard
+   across repos or orgs. Its permissions policy grants S3 read/write on
+   the `bikemap-frontend` bucket, CloudFront invalidation, and
+   `ssm:SendCommand`/`ssm:GetCommandInvocation` (the `SendCommand`
+   statement targeting the backend instance is scoped by
+   `ssm:resourceTag/Name=bikemap-backend` rather than a bare `instance/*`
+   wildcard, since the real instance ID doesn't exist until story 8.5).
+   The CloudFront statement can't yet be scoped to a specific
+   distribution ARN for the same reason (story 8.6 hasn't run) — tighten
+   it once that distribution exists.
+
+   The role's ARN is what gets set as the `AWS_DEPLOY_ROLE_ARN` repo
+   variable the workflow reads.
+
 ## Verifying without touching AWS
 
 ```
-bash -n infra/backend/*.sh infra/frontend/*.sh infra/lib.sh
-shellcheck infra/backend/*.sh infra/frontend/*.sh infra/lib.sh   # if installed
+bash -n infra/backend/*.sh infra/frontend/*.sh infra/cicd/*.sh infra/lib.sh
+shellcheck infra/backend/*.sh infra/frontend/*.sh infra/cicd/*.sh infra/lib.sh   # if installed
 ```
 
-Beyond syntax checking, "verification" for 8.1/8.2 is code review against
-each story's acceptance criteria in `docs/planning/stories.md` — no
-script here is executed against the real AWS account as part of writing
-or reviewing it.
+Beyond syntax checking, "verification" for 8.1/8.2/8.4 is code review
+against each story's acceptance criteria in `docs/planning/stories.md` —
+no script here is executed against the real AWS account as part of
+writing or reviewing it. In particular, story 8.4 also writes
+[`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), which
+is checked the same way (valid YAML, `actionlint` if available, code
+review) — **that workflow is never triggered for a real run as part of
+8.4 either.** It can't be: the deploy job targets the EC2 instance, S3
+bucket, and CloudFront distribution stories 8.5/8.6 create, which don't
+exist yet. Story 8.7 is where `deploy.yml` (and, ahead of it,
+`01-github-oidc-role.sh` above) actually run for the first time.
