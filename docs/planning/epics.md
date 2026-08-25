@@ -154,10 +154,30 @@ Epics 2+3 (serve + render the *existing* 4-city data live) and Epic 4 (refactor 
 
 **Dependencies:** Grows alongside Epics 1-4; there's no standalone "build the test infra first" step since each epic's tests only make sense once that epic's code exists.
 
+---
+
+### Epic 8 — Deployment: db + api + frontend to AWS (Phase 1: Expand)
+
+**Goal:** Stand up the new AWS infrastructure and deploy tooling for `db`+`api` (EC2 + docker-compose) and the frontend (S3+CloudFront), per [deployment.md](./deployment.md) — specifically its "Expand" phase ([deployment.md §4](./deployment.md#4-migration-plan-expand--cutover--contract)). Does not touch DNS and does not decommission the legacy EC2 box — this epic only gets new infrastructure stood up and verified in isolation; cutover and contract are deliberately separate, later work once this is proven. Internally split into two groups of stories, kept apart deliberately (see below), not two epics.
+
+**Realizes:** No FR directly (infrastructure only) — unblocks Epics 1-3's work actually running in production, which today it isn't (the live site still runs pre-migration code against the old, undocumented EC2 box — [deployment.md §1](./deployment.md#1-current-state-account-audit-2026-08-25)).
+
+**Scope:** Per [deployment.md §3](./deployment.md#3-target-architecture):
+
+- **Stories 8.1-8.4 — write the tooling (code only, no AWS account touched, no money spent).** `infra/` aws-cli scripts for backend (IAM instance role, security group, `t4g.micro` EC2 launch, Elastic IP, SSM parameters) and frontend (S3 bucket, CloudFront distribution, ACM cert); the app-level deploy artifacts (`docker-compose.prod.yml`, `nginx` config, `db/Migrations/Dockerfile`'s `migrator` service — this piece *is* fully exercised, but entirely locally, no AWS involved); the GitHub Actions deploy workflow and its OIDC role script. Every acceptance criterion here is satisfied by static review or purely local execution — verifiable, and safe to run through `/execute-epic`'s normal autonomous flow.
+- **Stories 8.5-8.7 — actually provision it.** Runs 8.1-8.4's output against the real AWS account: launches the real instance, creates the real S3 bucket/CloudFront distribution, issues the Cloudflare Origin CA cert by hand, and triggers the first real deploy, ending with Phase 1's end-to-end verification.
+  > **⚠️ Stories 8.5-8.7 must not be run via `/execute-epic`'s autonomous flow.** That process's whole model is subagents that "execute directly... do not ask for approval" and prove acceptance criteria with real commands rather than static review (`.claude/commands/execute-epic.md` §0/§1b) — right for 8.1-8.4, wrong here: applied to 8.5-8.7 it means real, billable AWS resources get created autonomously with no human checkpoint before each one, which is exactly the risk Sean asked to keep out of the automated stack (2026-08-25). Run these interactively — Sean, or Claude Code in a normal (non-`/execute-epic`) conversation — with explicit confirmation before each command that creates or spends against a real resource.
+
+**Decisions to close:** None — [deployment.md](./deployment.md) already resolved instance sizing, registry choice, secrets handling, TLS approach, and cost.
+
+**Dependencies:** Epics 1-3 (there needs to be a working `docker-compose.yml` stack and a buildable frontend to deploy — both already done). Independent of Epics 4-7. Unblocks a future cutover-and-contract epic (deployment.md §4 Phases 2-3), which stays out of scope here per [§3 below](#3-explicitly-not-epics).
+
+---
+
 ## 3. Explicitly not epics
 
 - **FR-2 (paths by designation), FR-4 (layer toggles), FR-7 (search), FR-8 (directions)** — all confirmed to need zero code changes under this migration ([ui-layer.md §7](./layers/ui-layer.md#7-component-level-impact)). They show up only as regression-test line items inside Epic 3, not as epics of their own.
-- **Deployment/hosting** — ~~explicitly deferred by Sean; pick this back up as its own conversation when Sean's ready~~ — **that conversation happened 2026-08-25; see [deployment.md](./deployment.md)** for the full plan (EC2 `t4g.micro` running the existing `docker-compose.yml` via SSM, not SSH; S3+CloudFront for the frontend; GHCR images; GitHub Actions OIDC). Still not one of the epics above — it's a separate infra initiative, the same relationship multi-city-expansion.md and testing-and-tooling.md have to this list, not product/data-pipeline work like Epics 1-7.
+- **Deployment cutover and contract** (deployment.md's Phase 2/3 — the DNS flip and decommissioning the legacy EC2 box) — deliberately not part of Epic 8, which only covers Phase 1 (Expand). Revisit as a follow-up epic once Epic 8 is verified stable.
 - **ADR / doc automation** ([multi-city-expansion.md §4.4](./multi-city-expansion.md#44-documentation-automation)) — treated as a standing Definition-of-Done item for every epic above (update `CLAUDE.md`, drop an ADR for a real decision) rather than its own epic, per that section's own framing.
 - **Infrastructure-aware routing (pgRouting)** — a non-goal per prd.md §5; not on this list at all.
 
