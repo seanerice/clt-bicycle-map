@@ -17,7 +17,7 @@ Top-level architecture document for the multi-city migration described in [multi
 | Application (ingestion) | Python (`scripts/`) | Batch-fetches OSM data from Overpass per `data/cities.json`, transforms tags into rendering properties, loads PostGIS | [application-layer.md](./layers/application-layer.md) |
 | Persistence | PostgreSQL + PostGIS | Spatial storage, indexing, schema for the features table | [persistence-layer.md](./layers/persistence-layer.md) |
 
-All four run containerized via docker-compose for local dev and as the deploy unit (testing-and-tooling.md §1). Hosting/deployment target is still deferred (testing-and-tooling.md §3) — these plans shouldn't assume a specific host.
+All four run containerized via docker-compose for local dev and as the deploy unit (testing-and-tooling.md §1). Hosting/deployment target is now decided — see [deployment.md](./deployment.md) — but these layer plans stay host-agnostic on purpose and don't need updating to assume it.
 
 *Terminology note:* "Layer" is overloaded across these docs — this table's "Layer" means a system/deployment tier (UI, API, Application, Persistence). prd.md's Glossary defines "Layer" separately, to mean a togglable map rendering category (bike lanes, cycling paths, bike routes). Both meanings are load-bearing in their own doc and neither is wrong; just don't assume "the UI layer" and "the bike-lanes layer" are the same kind of thing when reading across both documents.
 

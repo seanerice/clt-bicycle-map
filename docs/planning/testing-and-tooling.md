@@ -2,7 +2,7 @@
 
 Status: Draft for review
 Owner: Sean Rice
-Last updated: 2026-07-27
+Last updated: 2026-08-25
 
 Companion to [multi-city-expansion.md](./multi-city-expansion.md) — that doc covers the data/serving architecture; this one covers how we build confidence that it (and the UI) actually works, how it's packaged to run anywhere, and what of that we lean on Claude Code for. Split into app-specific concerns and AI-tooling concerns per Sean's request, since they're genuinely different audiences (a future contributor vs. a future Claude Code session).
 
@@ -29,9 +29,11 @@ Categories worth having, not a specific test list — that gets figured out at i
 - **E2E (Playwright)** — the real backbone for this app: load the map, verify layers render, toggle layer visibility, exercise search/directions, assert no console errors. Deterministic and cheap enough to run on every PR.
 - **Agent-driven walkthroughs** — qualitative, not run on every commit; see §4.
 
-## 3. Deployment (deferred)
+## 3. Deployment
 
-Sean wants to pick this back up separately — parking it here rather than in the main doc so it doesn't get lost. One correction worth carrying forward into that conversation: S3 isn't storage *for* a database — it's object storage for files/blobs, a good fit for the frontend build output or OSM data snapshots/backups, but not something PostGIS reads or writes to directly. A database needs real block storage (a managed option like RDS, or a volume attached to whatever box runs the container). The containerization goal in §1 means this decision is mostly "where does the compose stack run," not an architecture change.
+Resolved: the backend runs on a single EC2 box (`t4g.micro`, arm64) via the same `docker-compose.yml` §1 already commits to for `db` + `api`, reached over SSM Session Manager rather than SSH; the frontend moves to S3 + CloudFront, mirroring the pattern already proven by the `data.bikemap.seanerice.dev` distribution. Images build to GHCR and GitHub Actions deploys via OIDC rather than long-lived AWS keys. The migration itself is staged expand → cutover → contract: new resources stood up and verified before any DNS cutover, old resources torn down only after. Full rationale, account audit, and cost estimate live in [deployment.md](./deployment.md) — this section just points there rather than duplicating it.
+
+One piece of the original framing held up and shaped the decision, so it's worth keeping: S3 isn't storage *for* a database — it's object storage for files/blobs, a good fit for the frontend build output or OSM data snapshots/backups, but not something PostGIS reads or writes to directly. A database needs real block storage, which is why the answer landed on "one box running the compose stack" rather than trying to make S3 do double duty.
 
 ## 4. AI-assisted development tooling
 
