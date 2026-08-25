@@ -1,7 +1,7 @@
 ---
 title: CLT Bicycle Map — Epics
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-25
 ---
 
 # Epics: multi-city migration
@@ -157,7 +157,7 @@ Epics 2+3 (serve + render the *existing* 4-city data live) and Epic 4 (refactor 
 ## 3. Explicitly not epics
 
 - **FR-2 (paths by designation), FR-4 (layer toggles), FR-7 (search), FR-8 (directions)** — all confirmed to need zero code changes under this migration ([ui-layer.md §7](./layers/ui-layer.md#7-component-level-impact)). They show up only as regression-test line items inside Epic 3, not as epics of their own.
-- **Deployment/hosting** — explicitly deferred by Sean, parked in [testing-and-tooling.md §3](./testing-and-tooling.md#3-deployment-deferred). None of the epics above assume a hosting target; "containerized" is as far as any of them go. Pick this back up as its own conversation when Sean's ready, not folded in here.
+- **Deployment/hosting** — ~~explicitly deferred by Sean; pick this back up as its own conversation when Sean's ready~~ — **that conversation happened 2026-08-25; see [deployment.md](./deployment.md)** for the full plan (EC2 `t4g.micro` running the existing `docker-compose.yml` via SSM, not SSH; S3+CloudFront for the frontend; GHCR images; GitHub Actions OIDC). Still not one of the epics above — it's a separate infra initiative, the same relationship multi-city-expansion.md and testing-and-tooling.md have to this list, not product/data-pipeline work like Epics 1-7.
 - **ADR / doc automation** ([multi-city-expansion.md §4.4](./multi-city-expansion.md#44-documentation-automation)) — treated as a standing Definition-of-Done item for every epic above (update `CLAUDE.md`, drop an ADR for a real decision) rather than its own epic, per that section's own framing.
 - **Infrastructure-aware routing (pgRouting)** — a non-goal per prd.md §5; not on this list at all.
 

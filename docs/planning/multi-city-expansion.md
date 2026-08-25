@@ -113,7 +113,7 @@ Two concrete, low-effort pieces worth setting up now while the codebase is still
 
 ## 7. Open questions for Sean
 
-- ~~Hosting for PostgreSQL + Martin~~ — deferred; see [testing-and-tooling.md](./testing-and-tooling.md) §3. Revisit together later.
+- ~~Hosting for PostgreSQL + Martin~~ — resolved: see [deployment.md](./deployment.md).
 - ~~§4.2: Martin vs. bbox API~~ — decided: bbox API. See §4.2.
 - ~~Target city list~~ — no fixed list for now; Sean's leaning toward keeping scope abstract/config-driven rather than naming specific cities up front. Revisit when it's time to actually populate `data/cities.json` — doesn't block Phase 1 or 2.
 - Any interest in the pgRouting / turn-by-turn-on-our-own-data path (§3 non-goal), or is Mapbox Directions fine indefinitely? Only matters if it changes the DB decision — it doesn't, but worth confirming it's genuinely out of scope.
