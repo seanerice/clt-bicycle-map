@@ -97,48 +97,54 @@ else
   DIST_CONFIG_FILE=$(mktemp)
   trap 'rm -f "$DIST_CONFIG_FILE"' EXIT
 
+  # NOTE: the file content for --distribution-config-with-tags IS the
+  # DistributionConfigWithTags shape directly ({DistributionConfig, Tags}
+  # at the top level) — it must NOT be wrapped in an extra outer
+  # "DistributionConfigWithTags" key, even though that's what the shape's
+  # own name might suggest. Confirmed against a real ParamValidation
+  # error: aws-cli rejected the wrapped form with "Missing required
+  # parameter in DistributionConfigWithTags: DistributionConfig" /
+  # "Unknown parameter ...: DistributionConfigWithTags".
   cat > "$DIST_CONFIG_FILE" <<JSON
 {
-  "DistributionConfigWithTags": {
-    "DistributionConfig": {
-      "CallerReference": "$CLOUDFRONT_COMMENT",
-      "Comment": "$CLOUDFRONT_COMMENT",
-      "Enabled": true,
-      "DefaultRootObject": "index.html",
-      "Aliases": {
-        "Quantity": 1,
-        "Items": ["$FRONTEND_DOMAIN"]
-      },
-      "Origins": {
-        "Quantity": 1,
-        "Items": [
-          {
-            "Id": "$FRONTEND_BUCKET_NAME",
-            "DomainName": "$BUCKET_REGIONAL_DOMAIN",
-            "OriginAccessControlId": "$OAC_ID",
-            "S3OriginConfig": {
-              "OriginAccessIdentity": ""
-            }
-          }
-        ]
-      },
-      "DefaultCacheBehavior": {
-        "TargetOriginId": "$FRONTEND_BUCKET_NAME",
-        "ViewerProtocolPolicy": "redirect-to-https",
-        "CachePolicyId": "$CACHING_OPTIMIZED_POLICY_ID",
-        "Compress": true
-      },
-      "ViewerCertificate": {
-        "ACMCertificateArn": "$CERT_ARN",
-        "SSLSupportMethod": "sni-only",
-        "MinimumProtocolVersion": "TLSv1.2_2021"
-      }
+  "DistributionConfig": {
+    "CallerReference": "$CLOUDFRONT_COMMENT",
+    "Comment": "$CLOUDFRONT_COMMENT",
+    "Enabled": true,
+    "DefaultRootObject": "index.html",
+    "Aliases": {
+      "Quantity": 1,
+      "Items": ["$FRONTEND_DOMAIN"]
     },
-    "Tags": {
+    "Origins": {
+      "Quantity": 1,
       "Items": [
-        { "Key": "$PROJECT_TAG_KEY", "Value": "$PROJECT_TAG_VALUE" }
+        {
+          "Id": "$FRONTEND_BUCKET_NAME",
+          "DomainName": "$BUCKET_REGIONAL_DOMAIN",
+          "OriginAccessControlId": "$OAC_ID",
+          "S3OriginConfig": {
+            "OriginAccessIdentity": ""
+          }
+        }
       ]
+    },
+    "DefaultCacheBehavior": {
+      "TargetOriginId": "$FRONTEND_BUCKET_NAME",
+      "ViewerProtocolPolicy": "redirect-to-https",
+      "CachePolicyId": "$CACHING_OPTIMIZED_POLICY_ID",
+      "Compress": true
+    },
+    "ViewerCertificate": {
+      "ACMCertificateArn": "$CERT_ARN",
+      "SSLSupportMethod": "sni-only",
+      "MinimumProtocolVersion": "TLSv1.2_2021"
     }
+  },
+  "Tags": {
+    "Items": [
+      { "Key": "$PROJECT_TAG_KEY", "Value": "$PROJECT_TAG_VALUE" }
+    ]
   }
 }
 JSON
