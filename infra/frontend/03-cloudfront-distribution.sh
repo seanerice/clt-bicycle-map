@@ -144,7 +144,7 @@ else
 JSON
 
   DIST_ID=$(aws cloudfront create-distribution-with-tags \
-    --distribution-config-with-tags "file://$DIST_CONFIG_FILE" \
+    --distribution-config-with-tags "file://$(to_file_uri_path "$DIST_CONFIG_FILE")" \
     --query "Distribution.Id" --output text)
 
   rm -f "$DIST_CONFIG_FILE"
@@ -179,7 +179,7 @@ JSON
 echo "Applying bucket policy scoped to distribution $DIST_ID"
 aws s3api put-bucket-policy \
   --bucket "$FRONTEND_BUCKET_NAME" \
-  --policy "file://$BUCKET_POLICY_FILE"
+  --policy "file://$(to_file_uri_path "$BUCKET_POLICY_FILE")"
 
 rm -f "$BUCKET_POLICY_FILE"
 trap - EXIT

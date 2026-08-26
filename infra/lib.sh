@@ -54,6 +54,23 @@ OAC_NAME="bikemap-frontend-oac"
 # infra/frontend/02-acm-certificate.sh for the long version.
 ACM_REGION="us-east-1"
 
+# On Windows Git Bash, a `file://$path` value embeds a POSIX-style path
+# (e.g. /c/Users/...) inside a URI scheme, which MSYS's automatic
+# path-conversion never rewrites (it only converts bare path-looking
+# arguments, not ones embedded after "file://"), so aws-cli fails to open
+# the file. cygpath -m (Git Bash/Cygwin/MSYS only) gives the
+# Windows-style equivalent aws-cli can actually load; cygpath doesn't
+# exist on Linux/Mac, so this is a no-op there and the path is returned
+# unchanged.
+to_file_uri_path() {
+  local path="$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$path"
+  else
+    printf '%s' "$path"
+  fi
+}
+
 require_aws_cli() {
   if ! command -v aws >/dev/null 2>&1; then
     echo "error: aws-cli not found on PATH" >&2
