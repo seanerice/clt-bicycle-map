@@ -254,27 +254,28 @@ jobs:
 
       - name: Deploy + migrate via SSM
         run: |
-          # /opt/bikemap is a placeholder for wherever story 8.5's EC2
-          # user-data actually clones/places the repo on the box — that
-          # detail isn't pinned down yet (8.5's job, not this workflow's).
-          # Update this path if/when 8.5 lands somewhere else.
-          #
-          # Known gap (not fixed here — docker-compose.yml/
-          # docker-compose.prod.yml are out of scope for story 8.4, see its
-          # "what not to touch" list): docker-compose.yml's `api` service
-          # currently only defines `build:`, not `image:`, so `docker
-          # compose pull` will skip it with a warning, and `up -d api`
-          # will build locally on the box from the Dockerfile already
-          # there rather than pulling the arm64 image just pushed to GHCR
-          # above. Worth fixing (adding `image:
-          # ghcr.io/seanerice/clt-bicycle-map-api:latest` to the `api`
-          # service) before or during story 8.5/8.7.
+          # /opt/bikemap is where infra/backend/user-data.sh (story 8.1,
+          # fixed during story 8.7) clones this public repo on first boot.
+          # The `migrator` service builds from source on the box (no
+          # pushed image for it, unlike `api`), and docker-compose.prod.yml
+          # / nginx/conf.d are read straight off disk — so the box's
+          # checkout has to be brought up to the exact commit this
+          # workflow just tested and built before `docker compose` reads
+          # any of it. `git reset --hard` (not `pull`) so a force-push or
+          # rewritten history on the deployed branch can't leave the box
+          # stuck unable to fast-forward. The `test -d .../.git || git
+          # clone` fallback covers a box that predates user-data.sh's
+          # clone step, or a replacement box whose user-data hasn't run
+          # yet for some other reason.
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.backend.outputs.instance_id }}" \
             --document-name "AWS-RunShellScript" \
             --comment "bikemap deploy ${{ github.sha }}" \
             --parameters commands='[
+              "test -d /opt/bikemap/.git || git clone https://github.com/seanerice/clt-bicycle-map.git /opt/bikemap",
               "cd /opt/bikemap",
+              "git fetch origin",
+              "git reset --hard ${{ github.sha }}",
               "docker compose pull",
               "docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrator",
               "docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d api nginx"

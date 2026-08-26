@@ -30,6 +30,14 @@ services:
     ports: !reset []
 
   api:
+    # Without this, `docker compose pull` on the backend box has nothing
+    # to pull (the base file only has `build:`), so `up -d` would build
+    # from whatever source happens to be checked out on the box instead
+    # of running the arm64 image .github/workflows/deploy.yml just built
+    # and pushed to GHCR. Flagged during story 8.4's review (PR #64) and
+    # fixed here as part of story 8.7. `:latest` matches deploy.yml's
+    # plain `docker compose pull` + `up -d` (no pinned-tag env wiring).
+    image: ghcr.io/seanerice/clt-bicycle-map-api:latest
     ports: !reset []
 
   nginx:
