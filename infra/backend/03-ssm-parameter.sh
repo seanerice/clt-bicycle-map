@@ -21,6 +21,14 @@ source "$SCRIPT_DIR/../lib.sh"
 
 require_aws_cli
 
+# Git Bash / MSYS on Windows auto-converts CLI arguments that look like
+# absolute POSIX paths into Windows paths before exec'ing aws-cli (e.g.
+# "/bikemap/prod/..." becomes "C:/Program Files/Git/bikemap/prod/..."),
+# which breaks any AWS resource name that happens to start with a slash,
+# like this SSM parameter name. Excluding it from conversion is a no-op
+# outside of MSYS/Git-Bash (Linux/Mac/WSL), so it's always safe to set.
+export MSYS2_ARG_CONV_EXCL="$SSM_PARAM_NAME"
+
 if aws ssm get-parameter --region "$AWS_REGION" --name "$SSM_PARAM_NAME" >/dev/null 2>&1; then
   echo "Parameter $SSM_PARAM_NAME already exists, leaving its value untouched"
   exit 0
