@@ -262,6 +262,15 @@ jobs:
 
       - name: Deploy + migrate via SSM
         run: |
+          # shellcheck disable=SC2016
+          # The commands=[...] JSON below is single-quoted deliberately:
+          # its $(aws ssm get-parameter ...) must NOT expand here, in
+          # this job's own shell — it's meant to run on the EC2 box's
+          # shell once AWS-RunShellScript executes it there, using the
+          # box's own IAM role (which has ssm:GetParameter for this one
+          # parameter; this job's OIDC role does not and shouldn't).
+          # This check can't tell the two shells apart, so the warning
+          # is a real false positive here, not something to restructure.
           # /opt/bikemap is where infra/backend/user-data.sh (story 8.1,
           # fixed during story 8.7) clones this public repo on first boot.
           # The `migrator` service builds from source on the box (no
@@ -274,7 +283,17 @@ jobs:
           # stuck unable to fast-forward. The `test -d .../.git || git
           # clone` fallback covers a box that predates user-data.sh's
           # clone step, or a replacement box whose user-data hasn't run
-          # yet for some other reason.
+          # yet for some other reason. Same reasoning for the `test -f
+          # .../.env || ...` fallback: docker compose reads .env
+          # automatically for ${POSTGRES_PASSWORD} substitution in
+          # docker-compose.yml, and .env is gitignored so `git reset
+          # --hard` above never touches it — a box whose user-data hasn't
+          # run this step yet would otherwise deploy `db` with a blank
+          # password and fail (found by actually running this workflow
+          # for real in story 8.7: db exited immediately rather than
+          # start with an empty POSTGRES_PASSWORD). The fetch uses the
+          # box's own IAM instance role (01-iam-role.sh's scoped
+          # ssm:GetParameter grant), not this job's OIDC role.
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.backend.outputs.instance_id }}" \
             --document-name "AWS-RunShellScript" \
@@ -284,6 +303,7 @@ jobs:
               "cd /opt/bikemap",
               "git fetch origin",
               "git reset --hard ${{ github.sha }}",
+              "test -f /opt/bikemap/.env || (echo POSTGRES_PASSWORD=$(aws ssm get-parameter --region us-east-1 --name /bikemap/prod/POSTGRES_PASSWORD --with-decryption --query Parameter.Value --output text) > /opt/bikemap/.env && chmod 600 /opt/bikemap/.env)",
               "docker compose pull",
               "docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrator",
               "docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d api nginx"

@@ -5,13 +5,19 @@
 # arm64) — passed to 04-launch-instance.sh's `run-instances` call and
 # run once at first boot via cloud-init.
 #
-# This installs Docker, the Compose plugin, and git, and clones this
-# public repo to /opt/bikemap. It deliberately does NOT deploy the app
-# itself (pulling images, running docker-compose.prod.yml, etc.) —
-# that's story 8.3/8.4/8.7's job: the CI/CD workflow (8.4) drives deploys
-# via `aws ssm send-command` against an already-provisioned, Docker-ready
-# box, and expects /opt/bikemap to already hold a checkout it can `cd`
-# into and `git reset --hard` to the deployed commit (see deploy.yml).
+# This installs Docker, the Compose plugin, and git, clones this public
+# repo to /opt/bikemap, and writes /opt/bikemap/.env with the real
+# POSTGRES_PASSWORD (fetched from SSM Parameter Store via this
+# instance's own IAM role — see 01-iam-role.sh's scoped ssm:GetParameter
+# grant) so `docker compose` picks it up automatically for the
+# ${POSTGRES_PASSWORD} substitutions in docker-compose.yml. Per
+# deployment.md §3 ("fetched into a .env file by the instance at boot").
+# It deliberately does NOT deploy the app itself (pulling images,
+# running docker-compose.prod.yml, etc.) — that's story 8.3/8.4/8.7's
+# job: the CI/CD workflow (8.4) drives deploys via `aws ssm send-command`
+# against an already-provisioned, Docker-ready box, and expects
+# /opt/bikemap to already hold a checkout it can `cd` into and `git
+# reset --hard` to the deployed commit (see deploy.yml).
 set -euo pipefail
 
 dnf update -y
@@ -40,4 +46,18 @@ chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 # shell too.
 if [ ! -d /opt/bikemap/.git ]; then
   git clone --branch v2 https://github.com/seanerice/clt-bicycle-map.git /opt/bikemap
+fi
+
+# docker compose reads a .env file in its working directory automatically
+# for ${VAR} substitution — no explicit --env-file flag needed anywhere
+# else in this repo's compose invocations. Guarding on the file not
+# existing keeps this safe to hand-reproduce in a shell too, and (unlike
+# the git clone above) matters even after user-data's one-time run: .env
+# is gitignored, so it survives `git reset --hard` deploys untouched,
+# but a box that predates this script change needs it created once.
+if [ ! -f /opt/bikemap/.env ]; then
+  POSTGRES_PASSWORD="$(aws ssm get-parameter --region us-east-1 --name /bikemap/prod/POSTGRES_PASSWORD --with-decryption --query Parameter.Value --output text)"
+  echo "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" > /opt/bikemap/.env
+  chmod 600 /opt/bikemap/.env
+  unset POSTGRES_PASSWORD
 fi
