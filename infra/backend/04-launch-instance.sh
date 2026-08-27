@@ -40,6 +40,14 @@ source "$SCRIPT_DIR/../lib.sh"
 
 require_aws_cli
 
+# Git Bash / MSYS on Windows auto-converts CLI arguments that look like
+# absolute POSIX paths into Windows paths before exec'ing aws-cli (e.g.
+# "/aws/service/..." becomes "C:/Program Files/Git/aws/service/..."),
+# which breaks the AMI lookup below since its --names value starts with
+# a slash. Excluding it from conversion is a no-op outside of
+# MSYS/Git-Bash (Linux/Mac/WSL), so it's always safe to set.
+export MSYS2_ARG_CONV_EXCL="/aws/service"
+
 EXISTING_ID=$(aws ec2 describe-instances \
   --region "$AWS_REGION" \
   --filters "Name=tag:Name,Values=$BACKEND_NAME" \
@@ -90,6 +98,8 @@ if [ "${DRY_RUN:-0}" = "1" ]; then
   DRY_RUN_FLAG=(--dry-run)
 fi
 
+USER_DATA_FILE="$(to_file_uri_path "$SCRIPT_DIR/user-data.sh")"
+
 echo "Launching $INSTANCE_TYPE instance from $AMI_ID"
 aws ec2 run-instances \
   --region "$AWS_REGION" \
@@ -99,7 +109,7 @@ aws ec2 run-instances \
   --iam-instance-profile "Name=$IAM_INSTANCE_PROFILE_NAME" \
   --security-group-ids "$SG_ID" \
   --credit-specification CpuCredits=standard \
-  --user-data "file://$SCRIPT_DIR/user-data.sh" \
+  --user-data "file://$USER_DATA_FILE" \
   --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":20,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
   --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$BACKEND_NAME},{Key=$PROJECT_TAG_KEY,Value=$PROJECT_TAG_VALUE}]" \
   --count 1
