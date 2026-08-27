@@ -50,11 +50,11 @@ osm-refresh.yml (unchanged) ──writes──▶ S3 (bikemap bucket) — no lon
 
 ### Backend: EC2 + docker-compose
 
-- **New instance**, not the old one adapted in place: start on `t4g.micro` (1 vCPU/1GB RAM, ARM/Graviton, ~$6.13/mo) rather than the originally-considered `t3.small` — cheapest option, and Sean's fine taking on the arm64 image-build work to get there. Amazon Linux 2023 AMI (SSM agent preinstalled, arm64 variant).
-  - Resizing later (`t4g.micro` → `t4g.small`/`medium`) is a simple stop → `modify-instance-attribute` → start, a few minutes of downtime, no data loss — the Elastic IP and EBS root volume both persist across it. Watch memory during Phase 1 verification (§4) for signs 1GB is too tight (OOM kills, container restarts under `docker compose ps`) and size up if so.
-  - This does commit to arm64 images specifically, not multi-arch — if a future resize ever needs to move back to x86 (`t3`/`t3a`), that's a real migration (new AMI, rebuilt images), not a simple resize.
+- **New instance**, not the old one adapted in place: `t3a.micro` (1 vCPU/1GB RAM, AMD/x86_64, ~$6.86/mo). Amazon Linux 2023 AMI (SSM agent preinstalled, x86_64 variant).
+  - **Originally planned as `t4g.micro` (ARM/Graviton, ~$6.13/mo)** — cheaper, and the plan was for Sean to take on the arm64 image-build work to get there. **Changed during story 8.7**, after actually running the real first deploy surfaced a hard blocker: `postgis/postgis` (the `db` service's image since Epic 1) publishes no arm64 build at all, across any of its ~160 tags — confirmed via Docker Hub's API, not just the one tag in use. Local dev and CI never caught this because both run on x86 machines; it only breaks on real arm64 hardware. `t3a` (AMD) over `t3` (Intel) for the same "cheapest available" reasoning that picked `t4g` originally — real current pricing confirmed via the AWS Price List API: `t3a.micro` $0.0094/hr (~$6.86/mo) vs. `t3.micro` ~$0.0104/hr (~$7.59/mo). A real estimated cost increase of ~$0.73/mo over the original arm64 plan, and it also means `api`'s image build in `deploy.yml` no longer needs the QEMU cross-build step (GitHub's runners are already x86) — one less moving part, and faster.
+  - Resizing later (`t3a.micro` → `t3a.small`/`medium`, or even to `t3`/Intel) is a simple stop → `modify-instance-attribute` → start, a few minutes of downtime, no data loss — the Elastic IP and EBS root volume both persist across it, and all `t3`-family variants share the x86_64 architecture so there's no image-rebuild step this time (unlike the arm64 plan this replaced, which would have made an eventual move back to x86 a real migration). Watch memory during Phase 1 verification (§4) for signs 1GB is too tight (OOM kills, container restarts under `docker compose ps`) and size up if so.
   - If a Savings Plan gets purchased later once sizing is confirmed (§5), use a **Compute Savings Plan**, not an **EC2 Instance Savings Plan** — the former follows the workload across instance sizes/families, so a later resize doesn't strand the commitment.
-  - Leave CPU credit mode on **Standard** (the default for `t4g`), not "Unlimited" — Unlimited can bill extra for sustained bursts above baseline; Standard is free and plenty for this traffic level.
+  - Leave CPU credit mode on **Standard** (the default for `t3a`), not "Unlimited" — Unlimited can bill extra for sustained bursts above baseline; Standard is free and plenty for this traffic level.
 - **No SSH.** Security group opens only 80/443 to `0.0.0.0/0`. Access for both humans and CI is via **AWS Systems Manager Session Manager** — no key pair to leak, no stale IP allowlist like the current box has.
 - An IAM instance role grants: `AmazonSSMManagedInstanceCore`, `ssm:GetParameter` (for the two secrets below), and scoped S3 write access to a `db-backups/` prefix in the existing `bikemap` bucket.
 - Docker + the Compose plugin installed via EC2 user-data at launch (cloud-init), so the box is reproducible from the launch script rather than hand-configured.
@@ -75,7 +75,7 @@ osm-refresh.yml (unchanged) ──writes──▶ S3 (bikemap bucket) — no lon
 ### CI/CD
 
 - Container images (`api`) built in GitHub Actions and pushed to **GHCR**, not ECR — free, no extra AWS IAM/registry wiring, auth to it is already built into `GITHUB_TOKEN`.
-- Built for **arm64** (to match `t4g.micro`) using `docker/setup-qemu-action` + `docker buildx build --platform linux/arm64` — GitHub's hosted runners are x86, so this cross-builds under emulation. Slower than a native build, but there's exactly one image to build, so the absolute time cost is small.
+- Built for **x86_64** (to match `t3a.micro`) via `docker buildx build --platform linux/amd64` — GitHub's hosted runners are already x86, so this is a native build, not a cross-build. (Originally planned as an emulated arm64 cross-build via `docker/setup-qemu-action`, to match a `t4g.micro` backend — dropped along with that plan; see §3's backend section for why.)
 - GitHub Actions authenticates to AWS via **OIDC** (a new IAM role trusted by `token.actions.githubusercontent.com`, scoped to this repo) rather than long-lived access keys. The existing `osm-refresh.yml` keeps its static keys in the `bikemap-staging` environment for now — not in scope here, but worth migrating later for consistency.
 - One workflow, gated on the existing test suites passing:
   1. Run `website` (Vitest + Playwright), `api`, and `scripts` tests.
@@ -107,18 +107,18 @@ Based on current (Aug 2026) us-east-1 on-demand pricing:
 
 | Resource | Est. cost/mo | Basis |
 |---|---|---|
-| EC2 `t4g.micro` | $6.13 | $0.0084/hr × 730hr |
+| EC2 `t3a.micro` | $6.86 | $0.0094/hr × 730hr — confirmed via the AWS Price List API. Originally planned as `t4g.micro` ($6.13/mo); switched during story 8.7 after `postgis/postgis` turned out to have no arm64 build at all — see §3's backend section. |
 | EBS gp3, ~20GB | $1.60 | $0.08/GB-mo |
 | Elastic IP (attached, running) | $3.65 | $0.005/hr flat public-IPv4 charge — the same line item already billing as "VPC" against the current box, just now attached to a stable address instead of a non-guaranteed auto-assigned one |
 | S3 frontend bucket | ~$0.05 | A few MB of built JS/CSS |
 | CloudFront (new frontend dist) | ~$0–2 | Usage-based; the existing `data.` distribution bills $0/mo at current traffic, so similarly low expected unless real visitor volume shows up |
 | Nightly `pg_dump` backups in S3 (30-day retention) | ~$0.03 | Small gzip'd dump × 30 days |
 | SSM Parameter Store, ACM cert, GHCR, IAM/OIDC | $0 | Free at this scale |
-| **New backend + frontend total** | **~$11.5–13.5/mo** | |
+| **New backend + frontend total** | **~$12.2–14.2/mo** | |
 
 Phase 3 retires the old box's spend — this month's actuals (§1) scaled to a full month: EC2 Compute ~$7.75 + EBS ~$0.67 + public IP ~$3.35 ≈ **~$11.77/mo** goes away.
 
-**Net effect: roughly break-even, maybe +$0–2/mo** (current ~$11-13/mo → ~$11.5-13.5/mo). Starting the new box on `t4g.micro` instead of `t3.small` absorbs almost all of what the new CloudFront distribution and stable Elastic IP would otherwise have added. If Phase 1 verification shows 1GB is too tight and a resize to `t4g.small` is needed, that adds back roughly the `t4g.micro`→`t4g.small` delta (~$6.13/mo).
+**Net effect: roughly break-even, maybe up to ~+$2.5/mo** (current ~$11-13/mo → ~$12.2-14.2/mo). The `t3a.micro`→arm64-`t4g.micro` swap (§3) added a real but small ~$0.73/mo versus the original plan; the box choice still absorbs most of what the new CloudFront distribution and stable Elastic IP would otherwise have added. If Phase 1 verification shows 1GB is too tight and a resize to `t3a.small` is needed, that adds back roughly the `t3a.micro`→`t3a.small` delta (~$6.86/mo, confirmed via the same Price List API query).
 
 ## 6. Open follow-ups
 

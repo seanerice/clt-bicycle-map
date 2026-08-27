@@ -1199,8 +1199,10 @@ The GitHub Actions deploy workflow file, per [deployment.md §3 "CI/CD"](./deplo
 
 Run 8.1's reviewed scripts against the real AWS account, standing up [deployment.md §3 "Backend: EC2 + docker-compose"](./deployment.md#backend-ec2--docker-compose)'s pieces: the IAM instance role, the security group, the `POSTGRES_PASSWORD` SSM parameter, the `t4g.micro` EC2 instance itself, and the Elastic IP.
 
+**Instance type changed to `t3a.micro` (x86_64/AMD) mid-story** — `postgis/postgis` turned out to have no arm64 build at all, discovered only by actually running the real deploy in story 8.7. See [deployment.md §3](./deployment.md#backend-ec2--docker-compose) for the full writeup; this story's acceptance criteria below are otherwise unaffected — read every `t4g.micro` mention as `t3a.micro`.
+
 **Acceptance criteria:**
-- After running, `aws ec2 describe-instances` shows a running `t4g.micro` instance; `aws ec2 describe-security-groups` shows inbound rules limited to 80/443 from `0.0.0.0/0` and nothing else — no port 22 anywhere.
+- After running, `aws ec2 describe-instances` shows a running `t3a.micro` instance; `aws ec2 describe-security-groups` shows inbound rules limited to 80/443 from `0.0.0.0/0` and nothing else — no port 22 anywhere.
 - `aws ssm describe-instance-information` shows the instance registered and reachable via Session Manager — confirmed by actually opening a session and running `docker --version`, not just checking registration status.
 - The instance's attached IAM instance profile is confirmed via `aws ec2 describe-instances` / `aws iam get-instance-profile`, and `aws iam list-role-policies`/`list-attached-role-policies` on the role shows exactly `AmazonSSMManagedInstanceCore` plus the scoped `ssm:GetParameter` and S3 `db-backups/` write permissions — nothing broader, matching 8.1's reviewed policy JSON.
 - `POSTGRES_PASSWORD` exists in SSM Parameter Store as a `SecureString` — confirmed via `aws ssm get-parameter` (with decryption), not assumed from the script's intent.
@@ -1238,7 +1240,7 @@ Issue and install the Cloudflare Origin CA certificate on 8.5's box by hand (the
 - A real run of 8.4's workflow completes: tests → build/push arm64 `api` image to GHCR → build frontend → S3 sync + CloudFront invalidation → SSM deploy + migrate — with no `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secrets involved, only OIDC.
 - Hitting 8.5's Elastic IP directly with a `Host: api.bikemap.seanerice.dev` header returns a healthy `/health` and a correct `/features?bbox=...` response.
 - The raw `*.cloudfront.net` URL for 8.6's distribution serves the built frontend, and pointing a local build at the new API (via a hosts-file override or a temporary `API_BASE_URL`) renders the map correctly.
-- `docker compose ps` / memory usage on the box is checked for signs `t4g.micro`'s 1GB is too tight (per [deployment.md §3](./deployment.md#backend-ec2--docker-compose)'s resize note) — documented either way, not silently skipped.
+- `docker compose ps` / memory usage on the box is checked for signs `t3a.micro`'s 1GB is too tight (per [deployment.md §3](./deployment.md#backend-ec2--docker-compose)'s resize note) — documented either way, not silently skipped.
 - No Cloudflare DNS record for `bikemap.seanerice.dev` or `api.bikemap.seanerice.dev` is changed by this story — confirmed, not just assumed, since that's explicitly out of scope for Phase 1.
 
 **Blocked by:** 8.5, 8.6, 8.4. Last story in Epic 8 — unblocks a future cutover-and-contract epic (deployment.md §4 Phases 2-3) once this is confirmed stable.
