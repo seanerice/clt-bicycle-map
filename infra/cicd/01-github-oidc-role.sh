@@ -134,12 +134,17 @@ fi
 #        distribution ID and, less avoidably, GetCommandInvocation)
 #        rather than falling back to a wildcard resource for convenience.
 #
-#        cloudfront:ListDistributions was missing entirely until story
-#        8.7's first real deploy run failed on it — deploy.yml's "Look up
-#        CloudFront distribution ID" step calls ListDistributions to find
-#        the distribution by its Comment tag (the distribution ID itself
-#        isn't known until 8.6 creates it, same reasoning as the
-#        SsmSendCommand statement below), and nothing had granted it. ---
+#        cloudfront:ListDistributions and ec2:DescribeInstances were both
+#        missing entirely until story 8.7's first real deploy runs failed
+#        on them one after the other — deploy.yml's "Look up CloudFront
+#        distribution ID" and "Look up backend instance ID" steps look
+#        both resources up by tag/Comment rather than a static ID (the
+#        distribution and instance don't exist until stories 8.6 and 8.5
+#        create them, same reasoning as the SsmSendCommand statement
+#        below), and nothing had granted either action. Like
+#        GetCommandInvocation, ec2:DescribeInstances doesn't support
+#        resource-level permissions at all, so it's Resource: "*" too —
+#        a third honest gap, not a scoping choice. ---
 #
 # The CloudFront distribution ID and the backend EC2 instance ID don't
 # exist yet (created in stories 8.6 and 8.5, respectively) — this cannot
@@ -177,6 +182,12 @@ PERMISSIONS_POLICY=$(cat <<JSON
         "cloudfront:CreateInvalidation",
         "cloudfront:GetInvalidation"
       ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Ec2DescribeInstancesForBackendLookup",
+      "Effect": "Allow",
+      "Action": "ec2:DescribeInstances",
       "Resource": "*"
     },
     {
