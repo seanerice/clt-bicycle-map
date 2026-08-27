@@ -59,11 +59,21 @@ if [ -z "$OIDC_PROVIDER_ARN" ] || [ "$OIDC_PROVIDER_ARN" = "None" ]; then
   # update to IAM OIDC support, IAM no longer actually uses the supplied
   # thumbprint to validate GitHub's certificate chain — it validates
   # against its own library of trusted root CAs for known providers
-  # (GitHub included) instead. The value below is the thumbprint AWS's
-  # and GitHub's own setup docs have long published for this provider;
-  # it's accepted either way, but kept here (rather than a made-up value)
-  # in case it's ever consulted on an older aws-cli/IAM API version.
-  GITHUB_OIDC_THUMBPRINT="6938fd4d98bab03faadb97b34396831e3780aea"
+  # (GitHub included) instead. The value only needs to be a
+  # well-formed 40-character SHA-1 hex digest to pass client-side
+  # validation.
+  #
+  # The previous value here was a commonly-copied 39-character string —
+  # one hex digit short of the required 40 — which fails aws-cli's own
+  # ParamValidation before the request is ever sent (caught by actually
+  # running this script for real in story 8.7). Replaced with the real,
+  # live root CA thumbprint for token.actions.githubusercontent.com's
+  # current certificate chain (ISRG Root X1), fetched with:
+  #   openssl s_client -servername token.actions.githubusercontent.com \
+  #     -showcerts -connect token.actions.githubusercontent.com:443 \
+  #     </dev/null 2>/dev/null | ...extract the last cert in the chain... \
+  #     | openssl x509 -noout -fingerprint -sha1
+  GITHUB_OIDC_THUMBPRINT="ab9d0263244dd0326eb67015705a667e79cfe998"
 
   OIDC_PROVIDER_ARN=$(aws iam create-open-id-connect-provider \
     --url "$OIDC_PROVIDER_URL" \
