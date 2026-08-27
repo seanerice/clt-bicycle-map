@@ -98,17 +98,7 @@ if [ "${DRY_RUN:-0}" = "1" ]; then
   DRY_RUN_FLAG=(--dry-run)
 fi
 
-# On Windows Git Bash, a `file://$SCRIPT_DIR/...` value embeds a
-# POSIX-style path (e.g. /c/Users/...) inside a URI scheme, which MSYS's
-# automatic path conversion does NOT rewrite (it only converts bare
-# path-looking arguments, not ones embedded after "file://"), so aws-cli
-# fails to open the file. cygpath -m (Git Bash/Cygwin/MSYS only) gives
-# the Windows-style equivalent aws-cli can actually load; cygpath doesn't
-# exist on Linux/Mac, so this is a no-op there.
-USER_DATA_FILE="$SCRIPT_DIR/user-data.sh"
-if command -v cygpath >/dev/null 2>&1; then
-  USER_DATA_FILE="$(cygpath -m "$USER_DATA_FILE")"
-fi
+USER_DATA_FILE="$(to_file_uri_path "$SCRIPT_DIR/user-data.sh")"
 
 echo "Launching $INSTANCE_TYPE instance from $AMI_ID"
 aws ec2 run-instances \
