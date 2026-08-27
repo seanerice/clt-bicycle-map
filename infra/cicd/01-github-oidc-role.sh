@@ -128,11 +128,18 @@ else
 fi
 
 # --- 3. Permissions policy: S3 read/write on the frontend bucket, CloudFront
-#        invalidation, and SSM SendCommand/GetCommandInvocation. Scoped as
-#        tightly as the deploy job's actual needs allow — see the two
-#        honest gaps called out inline below (CloudFront distribution ID
-#        and, less avoidably, GetCommandInvocation) rather than falling
-#        back to a wildcard resource for convenience. ---
+#        lookup + invalidation, and SSM SendCommand/GetCommandInvocation.
+#        Scoped as tightly as the deploy job's actual needs allow — see
+#        the two honest gaps called out inline below (CloudFront
+#        distribution ID and, less avoidably, GetCommandInvocation)
+#        rather than falling back to a wildcard resource for convenience.
+#
+#        cloudfront:ListDistributions was missing entirely until story
+#        8.7's first real deploy run failed on it — deploy.yml's "Look up
+#        CloudFront distribution ID" step calls ListDistributions to find
+#        the distribution by its Comment tag (the distribution ID itself
+#        isn't known until 8.6 creates it, same reasoning as the
+#        SsmSendCommand statement below), and nothing had granted it. ---
 #
 # The CloudFront distribution ID and the backend EC2 instance ID don't
 # exist yet (created in stories 8.6 and 8.5, respectively) — this cannot
@@ -163,9 +170,13 @@ PERMISSIONS_POLICY=$(cat <<JSON
       "Resource": "arn:aws:s3:::${FRONTEND_BUCKET_NAME}/*"
     },
     {
-      "Sid": "CloudFrontInvalidateFrontendDistribution",
+      "Sid": "CloudFrontLookupAndInvalidateFrontendDistribution",
       "Effect": "Allow",
-      "Action": ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"],
+      "Action": [
+        "cloudfront:ListDistributions",
+        "cloudfront:CreateInvalidation",
+        "cloudfront:GetInvalidation"
+      ],
       "Resource": "*"
     },
     {
