@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # infra/backend/04-launch-instance.sh
 #
-# Launches the backend t4g.micro instance (Amazon Linux 2023, arm64),
-# attached to the IAM instance profile from 01-iam-role.sh and the
+# Launches the backend t3a.micro instance (Amazon Linux 2023, x86_64,
+# AMD), attached to the IAM instance profile from 01-iam-role.sh and the
 # security group from 02-security-group.sh, with user-data.sh installing
 # Docker + the Compose plugin at boot. No --key-name is passed anywhere
 # in this script — SSH is never available on this box (see
 # 02-security-group.sh); the only way in is SSM Session Manager, via the
 # AmazonSSMManagedInstanceCore role.
 #
+# x86_64, not the originally-planned arm64/t4g.micro — see lib.sh's
+# INSTANCE_TYPE comment for why (postgis/postgis has no arm64 build at
+# all, discovered by actually running story 8.7's deploy for real).
+#
 # --credit-specification CpuCredits=standard is passed explicitly rather
 # than left at the API default, per deployment.md §3 ("Leave CPU credit
 # mode on Standard ... not Unlimited") — Standard is free and plenty for
 # this workload; Unlimited can bill extra for sustained bursts above the
-# t4g.micro's baseline.
+# t3a.micro's baseline.
 #
 # Idempotent: looks up a pending/running/stopping/stopped instance
 # tagged Name=$BACKEND_NAME before launching a new one.
@@ -74,16 +78,16 @@ if [ -z "$SG_ID" ] || [ "$SG_ID" = "None" ]; then
   exit 1
 fi
 
-# Latest Amazon Linux 2023 arm64 AMI, resolved via AWS's public SSM
+# Latest Amazon Linux 2023 x86_64 AMI, resolved via AWS's public SSM
 # parameter rather than hardcoded, so this script doesn't go stale as
 # new AMIs are published.
 AMI_ID=$(aws ssm get-parameters \
   --region "$AWS_REGION" \
-  --names "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64" \
+  --names "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64" \
   --query "Parameters[0].Value" --output text)
 
 if [ -z "$AMI_ID" ] || [ "$AMI_ID" = "None" ]; then
-  echo "error: could not resolve the Amazon Linux 2023 arm64 AMI" >&2
+  echo "error: could not resolve the Amazon Linux 2023 x86_64 AMI" >&2
   exit 1
 fi
 

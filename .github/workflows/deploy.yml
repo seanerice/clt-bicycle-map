@@ -152,14 +152,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # --- Step 1: build the api image for arm64 (matches the t4g.micro
-      #     / Graviton backend instance from story 8.1) and push to GHCR. ---
-
-      - name: Set up QEMU
-        # GitHub's hosted runners are x86 — this lets buildx cross-build
-        # for linux/arm64 under emulation. Slower than a native build, but
-        # there's only one image, so the absolute cost is small.
-        uses: docker/setup-qemu-action@v3
+      # --- Step 1: build the api image for x86_64 (matches the
+      #     t3a.micro/AMD backend instance) and push to GHCR. ---
+      #
+      # No QEMU/cross-build setup needed: this used to cross-build for
+      # linux/arm64 under emulation (GitHub's hosted runners are x86),
+      # back when the backend instance was a t4g.micro (arm64/Graviton).
+      # Switched to x86_64 during story 8.7 after discovering, by
+      # actually running the real deploy, that postgis/postgis (the db
+      # service's image) has no arm64 build at all — see lib.sh's
+      # INSTANCE_TYPE comment and deployment.md §3. A native x86 build is
+      # both simpler (one less step) and faster than the emulated one it
+      # replaces.
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -171,7 +175,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push api image (arm64)
+      - name: Build and push api image (x86_64)
         uses: docker/build-push-action@v6
         with:
           # Build context is the repo root, not api/ — Api.csproj
@@ -180,7 +184,7 @@ jobs:
           # to include the repo root.
           context: .
           file: api/Dockerfile
-          platforms: linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.GHCR_IMAGE }}:${{ github.sha }}

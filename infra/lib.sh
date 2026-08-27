@@ -30,7 +30,16 @@ IAM_SCOPED_POLICY_NAME="bikemap-backend-scoped-permissions"
 SECURITY_GROUP_NAME="bikemap-backend-sg"
 SSM_PARAM_NAME="/bikemap/prod/POSTGRES_PASSWORD"
 EIP_NAME="bikemap-backend-eip"
-INSTANCE_TYPE="t4g.micro"
+# x86_64 (AMD), not the originally-planned t4g.micro (arm64/Graviton) —
+# changed during story 8.7 after discovering, by actually running the
+# real deploy, that postgis/postgis (the db service's image since Epic
+# 1) publishes no arm64 build at all across any of its ~160 tags. Local
+# dev and CI never caught this because they run on x86 machines. t3a
+# (AMD) rather than t3 (Intel) for the same "cheapest option" reasoning
+# deployment.md originally applied to picking t4g over t3 — ~$6.86/mo
+# vs. t4g.micro's ~$6.13/mo, a real but small cost increase, still
+# cheaper than t3.micro. See deployment.md §3 for the full writeup.
+INSTANCE_TYPE="t3a.micro"
 
 # The EXISTING data-pipeline bucket (unchanged, out of scope — see
 # CLAUDE.md / deployment.md §1). The backend instance role is scoped to

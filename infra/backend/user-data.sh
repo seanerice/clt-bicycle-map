@@ -2,7 +2,7 @@
 # infra/backend/user-data.sh
 #
 # EC2 user-data for the bikemap backend instance (Amazon Linux 2023,
-# arm64) — passed to 04-launch-instance.sh's `run-instances` call and
+# x86_64) — passed to 04-launch-instance.sh's `run-instances` call and
 # run once at first boot via cloud-init.
 #
 # This installs Docker, the Compose plugin, and git, clones this public
@@ -30,9 +30,10 @@ usermod -aG docker ec2-user
 # plugin. Install it as a CLI plugin so `docker compose ...` (the
 # subcommand form docker-compose.yml is invoked with elsewhere in this
 # repo) works, rather than the standalone `docker-compose` binary.
+# x86_64, not aarch64 — see this file's header comment.
 mkdir -p /usr/local/lib/docker/cli-plugins
 curl -SL \
-  "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64" \
+  "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
