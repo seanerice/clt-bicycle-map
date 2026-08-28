@@ -79,3 +79,17 @@ if [ ! -f /opt/bikemap/.env ]; then
   chmod 600 /opt/bikemap/.env
   unset POSTGRES_PASSWORD
 fi
+
+# Install the nightly OSM ingestion timer (story 4.3). This replaces the
+# retired `schedule:` trigger in .github/workflows/osm-refresh.yml (and
+# its `aws s3 sync` step): the daily refresh now runs on this box, via
+# the one-shot `ingest` service in docker-compose.prod.yml
+# (`docker compose ... run --rm ingest --all`), so a replacement instance
+# recreates the schedule from the checkout without any manual step. `cp`
+# is idempotent and `systemctl enable --now` is a no-op if the timer is
+# already enabled and running, so this whole block is safe to re-run by
+# hand.
+cp /opt/bikemap/infra/backend/systemd/bikemap-ingest.service /etc/systemd/system/
+cp /opt/bikemap/infra/backend/systemd/bikemap-ingest.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now bikemap-ingest.timer
