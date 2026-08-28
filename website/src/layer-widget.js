@@ -38,7 +38,7 @@ export class LayerWidget extends LitElement {
         ];
 
         if (greenwayRoutes === false) {
-            filters.push(['!=', ['get', 'cycle_network'], 'US:NC:Mecklenburg']);
+            filters.push(['!=', ['get', 'cycleNetwork'], 'US:NC:Mecklenburg']);
         }
 
         if (signedRoutes === false) {
@@ -46,14 +46,14 @@ export class LayerWidget extends LitElement {
                 '!',
                 [
                     'all',
-                    ['==', ['get', 'cycle_network'], 'US:NC:Charlotte'],
+                    ['==', ['get', 'cycleNetwork'], 'US:NC:Charlotte'],
                     ['has', 'ref']
                 ]
             ]);
         }
 
         if (suggestedRoutes === false) {
-            filters.push(['!=', ['get', 'cycle_network'], 'US:NC:Charlotte:Suggested Bike Route']);
+            filters.push(['!=', ['get', 'cycleNetwork'], 'US:NC:Charlotte:Suggested Bike Route']);
         }
 
         return filters;

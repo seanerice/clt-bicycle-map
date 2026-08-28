@@ -68,15 +68,15 @@ export class BikeMapApp extends LitElement {
                 'paint': {
                     'line-color': [
                         'case',
-                        ['==', ['get', 'cycle_network'], 'US:NC:Charlotte:Suggested Bike Route'],
+                        ['==', ['get', 'cycleNetwork'], 'US:NC:Charlotte:Suggested Bike Route'],
                         '#8539C4',
                         [
                             'all',
-                            ['==', ['get', 'cycle_network'], 'US:NC:Charlotte'],
+                            ['==', ['get', 'cycleNetwork'], 'US:NC:Charlotte'],
                             ['has', 'ref']
                         ],
                         '#e6c627',
-                        ['==', ['get', 'cycle_network'], 'US:NC:Mecklenburg'],
+                        ['==', ['get', 'cycleNetwork'], 'US:NC:Mecklenburg'],
                         '#3964C4',
                         '#ababab'
                     ],
