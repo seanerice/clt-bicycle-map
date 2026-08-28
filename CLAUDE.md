@@ -93,7 +93,7 @@ Layer visibility is controlled by `layer-widget.js`; `location-search-menu.js` a
 ## Docs
 
 `docs/planning/` holds forward-looking design/architecture docs, reviewed and approved like code — check here before making architectural changes, since they capture decisions (and the *why* behind them) that aren't yet reflected in the code below:
-- [`multi-city-expansion.md`](docs/planning/multi-city-expansion.md) — approved plan to replace the static-GeoJSON-from-S3 model above with PostGIS + a bbox-filtered API (`GET /features?bbox=...`, likely ASP.NET Core/Npgsql), fed by the same Overpass pipeline restructured around a `data/cities.json` config. **Not yet implemented** — the "Architecture" section above still describes current, pre-migration reality.
+- [`multi-city-expansion.md`](docs/planning/multi-city-expansion.md) — approved plan to replace the static-GeoJSON-from-S3 model above with PostGIS + a bbox-filtered API (`GET /features?bbox=...`, likely ASP.NET Core/Npgsql), fed by a rebuilt ingestion pipeline that clips a regional OSM extract into PostGIS via `osmium`/`osm2pgsql` (no Overpass in the automated pipeline — decided 2026-08-28), driven by a `data/cities.json` config. **Not yet implemented** — the "Architecture" section above still describes current, pre-migration reality.
 - [`testing-and-tooling.md`](docs/planning/testing-and-tooling.md) — companion plan: containerize the backend (PostGIS + API + pipeline) via docker-compose, a testing strategy by category, and standing AI-tooling practice (add a project-level `run` skill once containerized, add Playwright's run command here once it exists).
 
 `docs/index.html` is unrelated — a GitHub Pages stub, not project documentation.

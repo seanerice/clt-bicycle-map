@@ -1,7 +1,7 @@
 ---
 title: CLT Bicycle Map
 created: 2026-08-16
-updated: 2026-08-16
+updated: 2026-08-28
 ---
 
 # PRD: CLT Bicycle Map
@@ -146,7 +146,7 @@ A rider panning or zooming sees bike lanes, paths, and routes appear for the new
 The set of Coverage Areas the map draws from can be expanded by editing configuration, not by modifying the frontend or ingestion code. `[ASSUMPTION: this FR is stated from the product's perspective — that coverage isn't hardcoded — without prescribing the mechanism; multi-city-expansion.md §4.3 and architecture.md own how it's actually implemented.]`
 
 **Consequences (testable):**
-- Adding a new Coverage Area does not require a `website/` or `scripts/fetch_data.py` code change.
+- Adding a new Coverage Area does not require a `website/` or ingestion-pipeline code change.
 
 ### 4.6 Location search
 **Description:** Lets a rider search for an address or place name and jump the map there. Realizes UJ-2.
@@ -197,7 +197,7 @@ A rider can request directions between two points and see the suggested route re
 
 **Primary**
 - **SM-1**: Panning or zooming across any configured Coverage Area boundary shows continuous bike lane/path/route coverage — no visible gap, duplication, or flicker. Validates FR-5.
-- **SM-2**: A new Coverage Area can go from "not on the map" to "rendering correctly" via a configuration change alone, with no `website/` or `scripts/fetch_data.py` code change required. Validates FR-6.
+- **SM-2**: A new Coverage Area can go from "not on the map" to "rendering correctly" via a configuration change alone, with no `website/` or ingestion-pipeline code change required. Validates FR-6.
 
 **Secondary**
 - **SM-3**: The map keeps getting used for real ride planning (by Sean, and by whoever else finds it) without hitting missing-data dead ends at the edges of today's coverage. Validates FR-1–FR-4, FR-7, FR-8.
@@ -209,7 +209,7 @@ A rider can request directions between two points and see the suggested route re
 
 1. GeoJSON `Feature.id` encoding for `osm_type`/`osm_id` — small, not blocking, but worth a one-line decision before the API's response shape is implemented (api-layer.md §10, ui-layer.md §9, architecture.md §5).
 2. ~~Migration tooling for the persistence schema~~ — **resolved 2026-08-17: EF Core migrations** (architecture.md §5, persistence-layer.md §4).
-3. Deleted-OSM-feature handling — genuinely undecided; `last_seen_at` keeps the door open without committing to detection logic now (architecture.md §5, application-layer.md §10, persistence-layer.md §5).
+3. Deleted-OSM-feature handling — still undecided; `last_seen_at` keeps the door open without committing to detection logic now (architecture.md §5, application-layer.md §10, persistence-layer.md §5). The Epic 4 ingestion redesign (multi-city-expansion.md) shifts this tradeoff: ingesting from a full regional OSM extract, rather than from upstream query results, gives each run an authoritative picture of what currently exists in OSM across the configured Coverage Areas — so detect-and-delete becomes substantially more tractable, and the "hard to know what was actually deleted" objection largely falls away. Whether to build it for v1 is still Sean's call.
 4. Target Coverage Area list beyond the current four — no fixed list yet; revisit when it's time to actually populate `data/cities.json` (multi-city-expansion.md §7).
 5. Whether there's any real interest in infrastructure-aware routing (pgRouting) down the line, or Mapbox Directions is fine indefinitely — doesn't change the current architecture decision, but worth confirming it's genuinely out of scope (multi-city-expansion.md §7).
 
