@@ -2,10 +2,13 @@
 
 TLS-terminating reverse proxy config for the `nginx` service in
 [`docker-compose.prod.yml`](../docker-compose.prod.yml) — proxies
-`api.bikemap.seanerice.dev` to the compose-internal `api` service (see
+`bikemap-api.seanerice.dev` to the compose-internal `api` service (see
 [`conf.d/api.conf`](./conf.d/api.conf)), per
 [`docs/planning/deployment.md`](../docs/planning/deployment.md) §3
-("Backend: EC2 + docker-compose").
+("Backend: EC2 + docker-compose"). Single-level subdomain, not
+`api.bikemap.seanerice.dev` — see `conf.d/api.conf`'s header comment for
+why (Cloudflare's free Universal SSL edge cert only covers one level of
+wildcard, discovered during story 8.7's cutover).
 
 ## Certificate
 

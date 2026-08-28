@@ -146,7 +146,7 @@ jobs:
       id-token: write # required for aws-actions/configure-aws-credentials OIDC
       packages: write # required to push to GHCR
     env:
-      API_BASE_URL: https://api.bikemap.seanerice.dev
+      API_BASE_URL: https://bikemap-api.seanerice.dev
       GHCR_IMAGE: ghcr.io/seanerice/clt-bicycle-map-api
     steps:
       - name: Checkout
@@ -207,7 +207,7 @@ jobs:
         working-directory: website
         # website/webpack.config.js reads process.env.API_BASE_URL directly
         # and bakes it into the bundle via DefinePlugin. API_BASE_URL is set
-        # job-wide above (https://api.bikemap.seanerice.dev) specifically so
+        # job-wide above (https://bikemap-api.seanerice.dev) specifically so
         # the local-dev default (http://localhost:5000) can't leak into
         # this build.
         run: npm run build

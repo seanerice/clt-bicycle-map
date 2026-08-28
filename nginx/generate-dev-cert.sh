@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Generates a LOCAL, SELF-SIGNED TLS cert+key for api.bikemap.seanerice.dev
+# Generates a LOCAL, SELF-SIGNED TLS cert+key for bikemap-api.seanerice.dev
 # into the git-ignored nginx/certs/ directory.
+#
+# Single-level subdomain, not api.bikemap.seanerice.dev — see
+# nginx/conf.d/api.conf's header comment for why (Cloudflare's free
+# Universal SSL edge cert only covers one level of wildcard).
 #
 # This is purely a stand-in to prove out the nginx/docker-compose.prod.yml
 # TLS wiring locally (story 8.3) — it is NOT the certificate prod actually
@@ -15,14 +19,14 @@
 #   bash nginx/generate-dev-cert.sh
 #
 # Output:
-#   nginx/certs/api.bikemap.seanerice.dev.crt
-#   nginx/certs/api.bikemap.seanerice.dev.key
+#   nginx/certs/bikemap-api.seanerice.dev.crt
+#   nginx/certs/bikemap-api.seanerice.dev.key
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CERT_DIR="$SCRIPT_DIR/certs"
-DOMAIN="api.bikemap.seanerice.dev"
+DOMAIN="bikemap-api.seanerice.dev"
 
 mkdir -p "$CERT_DIR"
 
