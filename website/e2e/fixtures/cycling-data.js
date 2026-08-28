@@ -23,7 +23,7 @@ const CYCLING_DATA_FIXTURE = {
             properties: {
                 route: 'bicycle',
                 state: 'active',
-                cycle_network: 'US:NC:Mecklenburg',
+                cycleNetwork: 'US:NC:Mecklenburg',
                 ref: 'GW 1',
                 name: 'Test Greenway'
             },
@@ -48,7 +48,7 @@ const CYCLING_DATA_FIXTURE = {
             properties: {
                 route: 'bicycle',
                 state: 'proposed',
-                cycle_network: 'US:NC:Mecklenburg',
+                cycleNetwork: 'US:NC:Mecklenburg',
                 ref: 'GW Proposed'
             },
             geometry: {
