@@ -2,234 +2,371 @@
 
 Status: Draft for review
 Owner: Sean Rice
-Last updated: 2026-08-16
+Last updated: 2026-08-28
 
-Detail doc for the Application (ingestion) layer named in [../architecture.md](../architecture.md) §1. That doc's §2 defines the contracts this layer must honor; §3 shows where this layer sits in the data flow (Overpass → Application layer → Persistence layer via Contract B). This doc assumes the decisions already made in [../multi-city-expansion.md](../multi-city-expansion.md) (§4.1 PostGIS, §4.3 batch ingestion restructure) and [../testing-and-tooling.md](../testing-and-tooling.md) (§1 containerization, §2 backend testing categories) and works out the implementation details for `scripts/fetch_data.py` and its successors.
+Detail doc for the Application (ingestion) layer named in [../architecture.md](../architecture.md) §1. That doc's §2 defines the contracts this layer must honor (this layer owns the write side of **Contract B — Application ↔ Persistence**); §3 shows where this layer sits in the data flow (Geofabrik extract → clip → `osm2pgsql` raw schema → **this layer** → `features` via Contract B). This doc is the detail under [../multi-city-expansion.md](../multi-city-expansion.md) §4.3 ("Ingestion: keep batch, drop Overpass, build from a regional OSM extract") — that section's 7-step list is the shape; this works out the implementation. It also assumes [../multi-city-expansion.md](../multi-city-expansion.md) §4.1 (PostGIS) and [../testing-and-tooling.md](../testing-and-tooling.md) §1 (containerization) / §2 (backend testing categories).
+
+**This is a top-to-bottom rework** (2026-08-28) reflecting the Epic 4 pivot: no Overpass anywhere in the automated pipeline. The prior version of this doc detailed a `fetch_data.py` refactor around bbox-scoped Overpass queries and proximity clustering — that approach is retired (see multi-city-expansion.md §4.3 for the why: the public Overpass instance rate-limits this project at ~4 sequential queries, and self-hosting Overpass is more stateful operational surface, not less). The transform stage and the psycopg loader design survive; everything upstream of them is replaced.
 
 ## 1. Scope
 
-This layer owns everything between "OSM has the data" and "PostGIS has the data": fetching from Overpass, transforming OSM tags into the rendering properties Contract A depends on, and upserting into the features table. It does not own the schema itself (persistence layer) or how the data gets read back out (API layer). It runs batch, on the existing daily GitHub Actions cadence — no architectural change to *when* it runs, only to *what it reads from* and *where it writes to*.
+This layer owns everything between "OSM has the data" and "PostGIS has the data" — now in six stages:
 
-`scripts/load_neo4j.py` is explicitly out of scope — it's the parked Neo4j experiment referenced in multi-city-expansion.md §2/§4.1, superseded by the PostGIS decision. Nothing in this plan builds on it, and it should not be resurrected as part of this work.
+1. **Acquire** — download and cache the Geofabrik North Carolina `.osm.pbf` regional extract.
+2. **Clip** — `osmium extract --strategy=smart` from the NC extract to each configured area's AOI (bbox or boundary polygon).
+3. **Load raw** — `osm2pgsql` (flex/Lua config) loads the clips into a dedicated, `osm2pgsql`-owned `osm_raw` schema, dropped and reloaded every run.
+4. **Ingestion SQL** — a query against `osm_raw` that reproduces exactly what the old Overpass QL query selected (the six clauses, minus `highway=proposed`), emitting element type, OSM id, full tag set, and geometry.
+5. **Transform** — feed those rows through the existing pure `transform_*` functions via a thin adapter, with the one already-planned `osmType`-extraction fix.
+6. **Load `features`** — batch UPSERT into `features` keyed on `(osm_type, osm_id)`, whole run in one transaction.
+
+It does not own the schema itself (persistence layer), how the data is read back out (API layer), or the `osm_raw` schema's shape (that follows `osm2pgsql` and the Lua config — architecture.md §3 places it explicitly *outside* Contracts B/C).
+
+`scripts/load_neo4j.py` is out of scope — the parked Neo4j experiment (multi-city-expansion.md §2/§4.1), superseded by PostGIS. Nothing here builds on it.
 
 ## 2. `data/cities.json` schema
 
-Replaces the four hardcoded `fetch_data_for_area(...)` calls in `fetch_data.py` (lines 93-96). One entry per city/town; adding coverage becomes a PR that edits this file only.
+Replaces the four hardcoded `fetch_data_for_area(...)` calls in `fetch_data.py` (lines 93-96). One entry per Coverage Area; adding coverage becomes a PR that edits this file (plus, for a relation-based entry, a committed boundary polygon — see below).
 
 ```jsonc
 {
   "cities": [
-    {
-      "name": "Charlotte",
-      "state": "NC",
-      "osmRelationId": 3600177415,
-      "bbox": null
-    },
-    {
-      "name": "Belmont",
-      "state": "NC",
-      "osmRelationId": 3600179740,
-      "bbox": null
-    },
-    {
-      "name": "Cramerton",
-      "state": "NC",
-      "osmRelationId": 3600176891,
-      "bbox": null
-    },
-    {
-      "name": "McAdenville",
-      "state": "NC",
-      "osmRelationId": 3600179731,
-      "bbox": null
-    }
+    { "name": "Charlotte",   "state": "NC", "osmRelationId": 3600177415, "bbox": null },
+    { "name": "Belmont",     "state": "NC", "osmRelationId": 3600179740, "bbox": null },
+    { "name": "Cramerton",   "state": "NC", "osmRelationId": 3600176891, "bbox": null },
+    { "name": "McAdenville",  "state": "NC", "osmRelationId": 3600179731, "bbox": null }
   ]
 }
 ```
 
-Rules:
-- Exactly one of `osmRelationId` / `bbox` must be set per entry (the other `null` or omitted) — a city is identified either by its OSM admin-boundary relation (used only to *derive* a bbox, per §3 below — never to build an area-scoped Overpass query, that's the seam risk multi-city-expansion.md §2 already identified) or by an explicit bbox for places with no clean OSM relation (e.g. an ad hoc coverage rectangle that isn't a real municipality).
-- `bbox`, when present, is `[minLon, minLat, maxLon, maxLat]` (matches the ordering Contract A already uses for `GET /features?bbox=...`, so the same parsing/validation code can plausibly be shared later).
-- `name`/`state` are metadata for logging and data-quality reporting (§8), not used in the query itself.
-- Keep the four existing cities as the seed data — this is a lossless rename of the current hardcoded list, not a scope change.
+Rules (unchanged from the prior version except where noted):
+- Exactly one of `osmRelationId` / `bbox` per entry (the other `null` or omitted).
+- `bbox`, when present, is `[minLon, minLat, maxLon, maxLat]` — matches Contract A's `GET /features?bbox=...` ordering, so parsing/validation can plausibly be shared.
+- `name`/`state` are metadata for logging and data-quality reporting (§9), not consumed by the clip step.
+- Keep the four existing cities as seed data — a lossless rename of the current hardcoded list.
 
-### Resolving `osmRelationId` → bbox: cached, not per-run
+### What an entry now *means*: an AOI clip boundary, not a query target
 
-multi-city-expansion.md §4.3 point 2 prefers bbox-based Overpass queries over admin-polygon queries. That means an entry expressed as `osmRelationId` needs a one-time (or infrequent) resolution step to a concrete bbox, rather than a live area-polygon lookup on every run:
+Under the old plan, `osmRelationId` could only be used to *derive a bbox* — never the admin polygon directly — because an Overpass `area(id:)` query scoped to an admin-boundary relation made boundary-hugging ways ambiguous (the seam risk in multi-city-expansion.md §2). **That constraint is gone.** There is no area query anymore; there is a file clip. A polygon clip is now fine and in fact *preferred* — it produces a tighter AOI with less redundant coverage of neighboring geography — and `--strategy=smart` (§3.2) still keeps route/multipolygon members that cross the clip line, so continuity (FR-3) doesn't depend on the clip being rectangular.
 
-- **Recommendation: resolve once, cache the result, re-resolve rarely.** Add a small resolution step — either a one-off script run manually when a city is added to `cities.json`, or a lazy resolve-and-cache-to-disk step at the start of `fetch_data.py` — that queries Overpass for the relation's bounding box (`area(id:...)->.a; out bb;` or equivalent, a cheap single-relation query, not the full cycling-data query) and writes the resolved bbox back into `data/cities.json` (or a sibling `data/cities.resolved.json`) as `"bbox": [...]`. Once resolved, `bbox` is what the fetch step reads — `osmRelationId` becomes provenance/documentation, not a live lookup.
-- **Why not resolve on every run:** re-resolving on every cron invocation adds an extra Overpass round-trip per relation-based city on top of the actual data queries, for a value (a city's administrative boundary) that changes essentially never. It also reintroduces exactly the kind of "one query per city" pattern §4.3 is trying to move away from.
-- **Why not require every city to specify an explicit bbox by hand:** relation IDs are what's discoverable from OSM (search Nominatim/OSM for a city, get a relation ID) — forcing a contributor to manually compute a bounding box to add a city is more friction than the config-PR workflow multi-city-expansion.md §3 is going for. Relation ID with one-time server-side resolution keeps the human-facing part of the config easy while still giving the fetch step a plain bbox to work with.
-- Practical effect: `fetch_data_for_area`'s replacement never issues an `area(id:...)` Overpass query for the actual cycling-data fetch — only (rarely) for this one-time bbox resolution. This is the mechanism that satisfies §3 below and sidesteps the boundary-gap risk from multi-city-expansion.md §2.
+**Decision: an `osmRelationId` entry resolves to a GeoJSON boundary polygon file, not a bbox.**
 
-## 3. Overpass query strategy: bbox-based, batched by proximity
+- Resolution produces `data/aoi/<osmRelationId>.geojson` — a `(Multi)Polygon` of the admin boundary — **derived locally from the already-downloaded NC extract** (`osmium getid --recursive` to pull the boundary relation and its members, then assemble the multipolygon; a ~30-line script). The clip step (§3.2) runs `osmium extract --polygon data/aoi/<id>.geojson`.
+- A `bbox` entry needs no resolution — the clip step runs `osmium extract --bbox minLon,minLat,maxLon,maxLat` directly. `bbox` stays valid for ad-hoc coverage rectangles that aren't a real municipality.
+- **"Resolve once, cache" is preserved.** The `.geojson` is regenerated only when an entry is added or a `--force` flag is passed — an admin boundary changes essentially never. Unlike the old plan, resolution now involves *zero* third-party calls: it reads the same local `.pbf` the pipeline already has.
 
-### From area to bbox
+**Rejected:**
+- *Resolve to a bbox instead of a polygon* — loses the tighter clip for no benefit now that the Overpass seam risk that motivated "bbox only" is gone.
+- *Live polygon lookup per run from a service like `polygons.openstreetmap.fr` or Nominatim* — reintroduces exactly the third-party runtime dependency (and the per-city round-trip pattern) the pivot exists to remove.
+- *Require every entry to hand-specify a bbox* — relation IDs are what's discoverable from OSM (search Nominatim, get an ID); forcing a contributor to compute a bounding box by hand is more friction than the config-PR workflow (multi-city-expansion.md §3) is going for.
 
-Overpass QL supports a bbox filter two ways: a per-statement `(south,west,north,east)` filter appended to individual clauses, or a global `[bbox:south,west,north,east]` setting in the query header that applies to every statement without a more specific filter. The current query (`fetch_data.py` lines 12-30) uses `area(id:{area_id})->.searchArea` plus `(area.searchArea)` filters on each clause. The replacement swaps that for a global `[bbox:...]` header — simpler than repeating `(south,west,north,east)` on all six clauses, and functionally equivalent since every clause in the current query applies the same area filter:
+Open sub-question for §10: commit `data/aoi/*.geojson` to the repo, or treat it as a gitignored build cache.
 
+## 3. Acquire, clip, load raw, ingestion SQL
+
+Replaces the prior version's "Overpass query strategy: bbox-based, batched by proximity" section wholesale.
+
+### 3.1 Acquire the regional extract
+
+- **Source.** Geofabrik North Carolina `.osm.pbf` (`https://download.geofabrik.de/north-america/us/north-carolina-latest.osm.pbf`, ~300 MB) plus its companion `.osm.pbf.md5`. A plain HTTPS file off a CDN — no query quota, no rate limit, no per-query flakiness.
+- **Cache.** Store the extract in a stable location (`data/osm-cache/north-carolina-latest.osm.pbf`, gitignored) keyed by the day. In CI, back this with `actions/cache` keyed on the date so a same-day re-run (PR push, manual dispatch) reuses it instead of re-downloading. Locally, it persists in the cache dir (or a compose volume) between runs.
+- **Refresh cadence.** Full re-download on the daily cron is the v1 approach — simplest, statelessly correct, cheap at this size. Keeping the local copy current with Geofabrik's daily `.osc.gz` diffs (`pyosmium-up-to-date`) is a fine optimization *if* the download ever becomes a nuisance, but it adds a stateful "is my local copy at the right sequence number" concern — deliberately not v1 (§10).
+- **Integrity.** After download, verify the file against the `.md5`, and apply a size floor sanity check (a ~2 KB body is a CDN error page, not an extract). Resilience on failure is §7.
+
+### 3.2 Clip to each AOI
+
+For each `data/cities.json` entry, run `osmium extract --strategy=smart` against the NC extract, bounded by the entry's polygon (`--polygon data/aoi/<id>.geojson`) or bbox (`--bbox ...`).
+
+- **`--strategy=smart` is required, not default.** It keeps the member ways and nodes of route relations and multipolygons even when they cross the clip boundary. Without it, a `route=bicycle` relation whose ways extend past the AOI edge is silently truncated at that edge — a direct FR-3 regression (a route rendered as a broken line at a Coverage Area boundary is the City Boundary Seam the whole migration exists to prevent).
+- **Overlapping AOIs are fine and expected.** Adjacent Coverage Areas should have overlapping clips on purpose — a way running along a shared city line is then physically present in both clips, and the duplicate collapses on the `(osm_type, osm_id)` natural key (§4). The seam question becomes "clip generously, overlap deliberately, dedup on the natural key" rather than "did the query include this way."
+- **Failure mode to watch — the outer edge.** `--strategy=smart` handles boundary-*crossing* members, but at the outermost edge of the outermost AOI there is no neighboring clip to overlap with. A route that leaves the outermost AOI entirely still ends there. This is inherent to bounded coverage (prd.md §5 Non-Goals; architecture.md §6 third bullet) and not a bug — flagged so it's a known limitation, not a surprise.
+
+### 3.3 Load the clips into the raw schema
+
+`osm2pgsql` with a **flex (Lua) config** loads the clips into a dedicated `osm_raw` schema in the same PostGIS instance as `features`.
+
+- **Merge first, load once.** `osmium merge` the per-AOI clips into a single deduplicated `.osm.pbf` (it de-duplicates objects by `(type, id)`, last-wins), then run one `osm2pgsql` load against that. This keeps `osm_raw` dupe-free by construction and avoids relying on `osm2pgsql`'s append semantics (which are designed for diff updates, not clean multi-extract loads) — see §4.
+- **Flex config selects, it does not transform.** The Lua config keeps only objects carrying a cycling-relevant tag (any `cycleway*` key, `highway=cycleway`, `bicycle` in `{designated,yes}`, or `route=bicycle` on a relation) and shapes them into a small number of tables — e.g. `osm_raw.ways(osm_id bigint, tags jsonb, geom geometry(LineString,4326))` and `osm_raw.route_relations(osm_id bigint, tags jsonb, geom geometry(MultiLineString,4326))`. It emits the **full tag bag as `jsonb`** (or `hstore`) — no per-tag columns — and does **no** rendering-property derivation. All of that stays in Python (§5). Rationale for flex over the legacy C-transform output is §10.
+- **`osm_raw` is `osm2pgsql`-owned and drop-and-reloaded every run.** It is explicitly **not** managed by the EF Core migrations that own `features` (architecture.md §3). The two schemas never contend for ownership of the same tables. Blowing `osm_raw` away and reloading it never disturbs `features` history (`first_seen_at` / `last_seen_at`).
+- **Relation geometry assembly ("way-walking").** `osm2pgsql` stitches a `route=bicycle` relation's member ways into a `(Multi)LineString` from its local node/way cache during the load. This is the **same single-level assembly** `osm2geojson` does today from the Overpass payload — just more robust, because with `--strategy=smart` every member way is physically present in the clip, so there are no gaps from a query response that happened to omit a skeleton element. **Nested relations / `route_master` super-relations are not handled today and are not handled after this pivot** — today's Overpass query uses single `>` recursion (not `>>`), and `transform_relation_feature` hard-gates on `tags.type == "route"`, which rejects `route_master`. The pivot neither regresses nor fixes this; nested-route support stays explicit future work. Two things here must be **verified by an early spike, not assumed** — see §9 and §10.
+
+### 3.4 Ingestion SQL
+
+A single query against `osm_raw` reproduces exactly what the old Overpass QL query (`fetch_data.py` lines 12-30) selected. The six positive clauses, `UNION`ed, minus the `highway=proposed` exclusion:
+
+| Overpass clause | `osm_raw` predicate |
+|---|---|
+| `way[~"^cycleway:.*$"~"."]` | a `tags` key matching `^cycleway:` with a non-empty value |
+| `way["cycleway"~"."]` | `tags ? 'cycleway' AND tags->>'cycleway' <> ''` |
+| `way["highway"="cycleway"]` | `tags->>'highway' = 'cycleway'` |
+| `way["bicycle"="designated"]` | `tags->>'bicycle' = 'designated'` |
+| `way["bicycle"="yes"]` | `tags->>'bicycle' = 'yes'` |
+| `relation["route"="bicycle"]` | `tags->>'route' = 'bicycle'` (from `osm_raw.route_relations`) |
+| MINUS `way["highway"="proposed"]` | `AND coalesce(tags->>'highway','') <> 'proposed'` |
+
+```sql
+WITH selected AS (
+    SELECT 'way'::text AS osm_type, osm_id, tags, geom
+    FROM osm_raw.ways
+    WHERE ( tags ? 'cycleway'
+         OR tags->>'highway' = 'cycleway'
+         OR tags->>'bicycle' IN ('designated', 'yes')
+         OR EXISTS (SELECT 1 FROM jsonb_object_keys(tags) k
+                    WHERE k LIKE 'cycleway:%' AND tags->>k <> '') )
+      AND coalesce(tags->>'highway', '') <> 'proposed'
+    UNION
+    SELECT 'relation'::text AS osm_type, osm_id, tags, geom
+    FROM osm_raw.route_relations
+    WHERE tags->>'route' = 'bicycle'
+)
+SELECT DISTINCT ON (osm_type, osm_id)
+       osm_type, osm_id, tags, ST_AsEWKB(geom) AS geom_ewkb
+FROM selected
+ORDER BY osm_type, osm_id;
 ```
-[out:json][timeout:25][bbox:{south},{west},{north},{east}];
-(
-    way[~"^cycleway:.*$"~"."];
-    way["cycleway"~"."];
-    way["highway"="cycleway"];
-    way["bicycle"="designated"];
-    way["bicycle"="yes"];
-    relation["route"="bicycle"];
-)->.all;
-(
-    way["highway"="proposed"];
-)->.proposed;
-(.all; - .proposed;);
-out body;
->;
-out skel qt;
+
+- **`UNION` (not `UNION ALL`) / `DISTINCT ON`** collapses a way that matches more than one clause (e.g. both `cycleway:left` and bare `cycleway`) to one row — this dedup is needed regardless of clip overlap, and doubles as a second layer over §4.
+- **Geometry out as EWKB** via `ST_AsEWKB(geom)` — see §6 for why (the pure transforms never touch geometry, so there is no reason to serialize it to GeoJSON and re-parse it).
+- The output row shape — element type, OSM id, full tag set, geometry — is exactly what the adapter (§5) needs to build a transform-input feature dict. This SQL is a **testable artifact** (§9): given a seeded `osm_raw`, it must select the right elements and exclude `highway=proposed`.
+- Tag filtering is split deliberately: the flex config does *coarse* selection at load time (keeps `osm_raw` small); this SQL does the *exact* six-clause reproduction (kept in SQL, adjacent to Python, unit-testable — not in Lua).
+
+### 3.5 What's gone: proximity clustering
+
+The prior version's proximity clustering — cluster-distance threshold, greedy grouping of nearby cities, union-bbox-per-cluster, "4 Overpass calls collapse to 1" — is **obsolete**. There are no per-area queries to batch. `epics.md` / `stories.md` carried decision items for the cluster-distance threshold (stories 4.2, 4.10); those are void (see §10 and the epic-rework notes at the end of this doc's companion report).
+
+## 4. Overlap / dedup handling
+
+Duplicates now arise from **overlapping AOI clips**: the same OSM element inside two clips → two entries in the merged input → potentially two `osm_raw` rows → the ingestion SQL could emit it twice. Three places to handle it:
+
+1. **At raw load** — `osmium merge` the clips into one deduplicated `.osm.pbf` before `osm2pgsql` (it de-duplicates by `(type, id)`). One load, no dupes in `osm_raw`.
+2. **In the ingestion SQL** — `DISTINCT ON (osm_type, osm_id)` (already present in §3.4 for the multi-clause-match case).
+3. **The `(osm_type, osm_id)` UPSERT** — the cross-run idempotency guarantee (Contract B), correct on its own regardless.
+
+**Recommendation: do (1), and get (2) for free.** Merge-first keeps `osm_raw` dupe-free by construction; the SQL's `DISTINCT ON` is already there for multi-clause matches and covers clip overlap as a cheap second layer. The UPSERT (§6) remains the source of truth for idempotency *across* runs (yesterday's run and today's; two CI runs racing) — merge-first and `DISTINCT ON` only ever see one run's data.
+
+**Rejected:**
+- *`osm2pgsql` multi-file append (`--append`) without merging first* — append semantics are built for applying diffs, not for cleanly loading several overlapping extracts; risk of inconsistent geometry assembly across appends. Merge-first is more predictable and is the model `osm2pgsql` docs recommend for combining extracts.
+- *Rely solely on the UPSERT* — wastes 2× (or more, for overlap-heavy AOIs) transform and load work on the same element, and inflates the per-run feature counts the data-quality checks (§9) read as a sanity signal. Same reasoning the prior version gave for its in-memory dedup.
+
+This does **not** introduce a new dedup key — `(osm_type, osm_id)` is Contract B's key and the only one used at every layer.
+
+## 5. Transform stage: unchanged, plus an adapter and one extraction
+
+`transform_road_feature`, `transform_path_feature`, `transform_relation_feature`, and their dispatcher `transform_way_feature` / `transform_data` (`fetch_data.py` lines 156-292) are pure functions — no I/O, no network, no dependency on how the input was fetched or where the output goes. They carry forward essentially unchanged. This is the code multi-city-expansion.md and testing-and-tooling.md flag as currently untested and highest-value to cover first (§9).
+
+### 5.1 The adapter (replaces `json2geojson`)
+
+Today the entry point is `json2geojson(fetch_data(), filter_used_refs=True)` → `transform_data(...)`. Post-pivot, a thin **adapter** maps each ingestion-SQL row into the feature dict shape the transforms expect:
+
+```python
+{
+    "type": "Feature",
+    "properties": {
+        "tags": <dict from the row's jsonb tags>,
+        "type": "way" | "relation",   # from the row's osm_type column
+        "id":   <int from the row's osm_id column>,
+    },
+    "geometry": <the row's geometry, carried opaquely — see §6>,
+}
 ```
 
-`fetch_data_for_area(area_id)` becomes something like `fetch_data_for_bbox(bbox)` — the retry/backoff loop (lines 32-90) is untouched; only the `query` string's first two lines change. Rate-limiting behavior is covered in §6.
+`transform_data` dispatches on `feature["properties"]["type"]` (`"way"` → `transform_way_feature`, `"relation"` → `transform_relation_feature`). The adapter sets that field **directly from the `osm_raw` element-type column** — reliable in a way the Overpass path never fully was (no skeleton-element ambiguity). `osm2geojson` is no longer called; whether it stays a dependency at all depends on whether anything else imports it (nothing in the transforms does) — likely removable, confirm during the module split.
 
-### Combining cities into a small number of queries
+### 5.2 The `osmType` extraction fix (Epic 4 bug-fix, carried forward)
 
-multi-city-expansion.md §4.3 point 2 recommends "a small number of large bounding-box queries" over one-query-per-city, for two reasons: fewer round trips (helps rate limiting) and avoiding the boundary-gap risk. Concretely:
+`transform_relation_feature` (lines 245-254) spreads `feature["properties"]["tags"]` over `feature["properties"]` *after* the base spread. Every route relation's tags include `type: "route"` (the convention `relation["route"="bicycle"]` relies on, asserted at line 246), so **the tag's `"type": "route"` silently overwrites the original `"type": "relation"`** in the output. Confirmed in the current `data/export.geojson`: route features show `"type": "route"`, not `"relation"`. `properties.id` is unaffected.
 
-- **Recommendation: cluster cities whose bboxes are within some proximity threshold (e.g. within ~15-20 km of each other, or whose bboxes already overlap/are adjacent) and issue one query per cluster, using the union of the clustered bboxes.** For the current four-city seed set (Charlotte, Belmont, Cramerton, McAdenville — all in the same metro, within a few miles of each other), this collapses to a **single query** covering the union bbox of all four. That's the concrete recommendation for the seed data: one Overpass call instead of four.
-- **Why cluster instead of one global query across all configured cities regardless of distance:** if `cities.json` eventually includes a city far from the Charlotte metro (a stated future possibility per multi-city-expansion.md §3 "grow coverage to... eventually other nearby cities"), unioning its bbox with Charlotte's would create one enormous bbox spanning mostly-empty geography between them — Overpass would scan and return data for a huge rectangle to serve two small areas of actual interest, which is worse than two focused queries. Clustering by proximity gets the round-trip savings where cities are genuinely close (where a shared query's overhead is nearly free) without paying for it when they're not.
-- **Implementation shape:** a simple greedy clustering (sort cities by bbox center, group any whose bbox — expanded by a small margin — intersects or is within the distance threshold of another in the same group, take the union bbox of each group) is sufficient; this doesn't need anything more sophisticated than that for a handful of cities. Revisit only if `cities.json` grows large enough that even clustering produces many groups.
-- Each cluster becomes one `fetch_data_for_bbox(union_bbox)` call. `fetch_data()`'s job changes from "call `fetch_data_for_area` four times by name" (current lines 93-96, hardcoded) to "read `cities.json`, resolve bboxes (§2), cluster, call `fetch_data_for_bbox` once per cluster, combine `elements` arrays" — structurally the same combine-then-return shape as today (lines 98-108), just with a data-driven loop instead of four named calls.
+The loader (§6) UPSERTs keyed on `(osm_type, osm_id)` (Contract B). It must get the real OSM element type from something the tag spread can't clobber.
 
-### Union bbox growing the query beyond a city's own boundary
+**Fix (settled — architecture.md §4, epics.md story 4.4): add an explicit `osmType` field inside all three transform functions.** `transform_relation_feature` sets `properties.osmType = "relation"`; `transform_road_feature` / `transform_path_feature` set `properties.osmType = "way"` (already safe there, but making it explicit removes the "is `properties.type` reliable here" question for the loader entirely). This is the field the loader keys on.
 
-Using a bbox instead of an admin polygon means each city's query area is now its rectangular bounding box, not its actual (often irregular) boundary — this necessarily includes some area outside the city limits (and, per the clustering above, a modest amount of area between nearby cities too). That's an accepted trade-off, not an oversight: it's exactly what fixes the boundary-gap risk in multi-city-expansion.md §2 (a way that crosses a city line is no longer subject to "which polygon does this belong to" ambiguity — bboxes overlapping is fine, see §4), and the extra coverage is strictly additive data, not a correctness problem. It does mean the fetch is no longer scoped to "exactly Charlotte" — flagged here so it's a known, intentional shift, not a silent one.
+Note: post-pivot the adapter *also* sets `properties.type` reliably from the `osm_raw` column, so in principle the loader could read that. Keep the explicit `osmType` field anyway — it's the transform stage's contract with the loader, independent of how the input was built, and it's what the loader and the contract tests (§9) pin down. The prior version's "capture type/id before the clobber, zip pre- and post-transform lists by index" mechanic is dropped — no parallel-list bookkeeping needed.
 
-## 4. Boundary/dedup handling
+No other structural change to the transform stage. `transform_data`'s `print("relation features: ...")` / `print("way features: ...")` counts are worth keeping (or folding into the data-quality check in §9).
 
-Bbox queries — whether from adjacent-city clustering (§3) or just genuinely overlapping cities — can return the same OSM way/relation more than once in a single run, unlike the old admin-polygon-per-city queries where (leaving aside the boundary-gap risk) each element nominally belonged to one area's result.
-
-**Recommendation: dedup in-memory before transform, not left solely to the UPSERT.** Concretely, in `fetch_data()` (or the function that replaces it), dedup `combined_elements` by `(type, id)` before handing the list to `json2geojson`/`transform_data` — a simple dict keyed on `(element["type"], element["id"])`, last-write-wins (or first-write-wins; the payload for a given OSM element is identical regardless of which cluster query returned it, so it doesn't matter which copy survives).
-
-Reasoning:
-- The UPSERT (§5) *would* handle it correctly either way — that's the whole point of Contract B's `(osm_type, osm_id)` key, and it's not being second-guessed here as the source of truth for idempotency across *runs*.
-- But deduping in-memory within a single run avoids doing 2x (or more, for overlap-heavy clusters) redundant transform work and UPSERT statements for the same element, and keeps `transform_data`'s printed counts (lines 285-286: `relation features:`, `way features:`) meaningful as a per-run sanity signal instead of inflated by duplicates — relevant to the data-quality checks in §8.
-- It's also cheap and local: a dict keyed on `(type, id)` over a few thousand elements, no I/O, no new dependency.
-
-This in-memory dedup is a convenience/efficiency measure, not a substitute for the UPSERT's idempotency guarantee — the UPSERT still must be correct on its own for the cross-run case (a way present in yesterday's run and today's run, or two separate CI runs racing) since in-memory dedup only ever sees one run's data.
-
-## 5. Transform stage: unchanged, plus one extraction
-
-`transform_road_feature`, `transform_path_feature`, `transform_relation_feature`, and their dispatcher `transform_way_feature`/`transform_data` (`fetch_data.py` lines 156-292) are pure functions — no I/O, no network, no dependency on how the input was fetched (area vs. bbox) or how the output will be persisted (file vs. DB). They carry forward essentially unchanged. This is also exactly the code multi-city-expansion.md and testing-and-tooling.md flag as currently untested and highest-value to cover first (§8).
-
-### The one thing that does need attention: `osm_type`/`osm_id` extraction for the UPSERT key
-
-Contract B requires the loader to UPSERT keyed on `(osm_type, osm_id)`. Reading the actual transform output (confirmed against `data/export.geojson`) surfaces a real collision the loader needs to work around, not just a formality:
-
-- For a **way** feature, `feature["properties"]["type"]` is `"way"` and `feature["properties"]["id"]` is the OSM way id (e.g. `16662875`) — and this survives transform untouched, because way tags don't contain a `type` key. So `properties.type` / `properties.id` are directly usable as `osm_type`/`osm_id` for ways.
-- For a **relation** (route) feature, the *original* `properties.type` is `"relation"` — but `transform_relation_feature` (lines 243-252) spreads `feature["properties"]["tags"]` over `feature["properties"]` in building `new_feature`, and every route relation's tags include `"type": "route"` (that's the OSM convention this repo's own Overpass query relies on — `relation["route"="bicycle"]` implies `tags.type == "route"`, also asserted at line 244). Tag spread happens *after* the base properties spread, so **the tag's `"type": "route"` silently overwrites the original `"type": "relation"`** in the final output. Confirmed in the current `data/export.geojson`: route features show `"type": "route"`, not `"relation"`. `properties.id` is unaffected (no route relation tag is named `id`) and correctly holds the relation id.
-
-Net effect: `properties.type` cannot be trusted as `osm_type` for relations once it's gone through `transform_relation_feature`. The loader needs the real OSM element type captured **before** this overwrite, not read back out of the transformed output. Two ways to do this, either is fine:
-1. Capture `osm_type = feature["properties"]["type"]` and `osm_id = feature["properties"]["id"]` in the loader/orchestration step immediately after `json2geojson` and before calling `transform_data`, carrying them alongside (not merged into) each feature through the transform call — e.g. the loader zips the pre-transform `(osm_type, osm_id)` pairs with the post-transform feature list by index, since `transform_data` doesn't reorder or drop elements other than the `unknown_features` bucket (lines 263-286) which are excluded from the returned `FeatureCollection` already.
-2. Or, small surgical change to `transform_relation_feature`: explicitly set `new_feature["properties"]["osmType"] = "relation"` (a name that doesn't collide with the `type` tag) before/after the properties spread, so the field survives under a name the tag data can't clobber. This is the cleaner long-term fix but does touch `transform_relation_feature`'s output shape, so it should be called out to whoever owns Contract A/the persistence schema as a (minor, additive) property addition, not a breaking rename.
-
-**Recommendation: option 2** — add an explicit, tag-collision-proof field (`osmType`, distinct from the pass-through `type` tag value) inside `transform_relation_feature`, and for symmetry add the same to `transform_road_feature`/`transform_path_feature` (where it happens to already be safe, but making it explicit removes the "is `properties.type` reliable here" question entirely for the loader). This is a small, additive, well-scoped change to otherwise-unchanged functions, and it's much less error-prone for the loader than reconstructing type/id pairs by parallel-list bookkeeping across the transform call boundary. Either way, this needs a unit test specifically asserting `osm_type`/`osm_id`-equivalent fields survive `transform_relation_feature` correctly (§8) — this is exactly the kind of silent-collision bug that only shows up by reading actual output, as it did here.
-
-No other structural change to the transform stage. `transform_data`'s existing `print("relation features: ...")` / `print("way features: ...")` logging is worth keeping (or upgrading into the data-quality check in §8) as-is.
+Two pre-existing bugs found by reading the real code stay in scope (architecture.md §4 makes both blockers, not optional cleanup):
+- **`highway_roads` missing comma** (lines 135-136): `"tertiary_link"` and `"living_street"` are string-concatenated into one invalid entry, so `highway=living_street` ways fall through to `unknown_features` and are dropped. One-character fix; blocks FR-1.
+- The `osmType` clobber above; blocks FR-6/SM-2 for every route relation.
 
 ## 6. Loader design
 
-Replaces `write_data()` (lines 110-118), which currently just `json.dumps`s the transformed `FeatureCollection` to `../data/export.geojson`.
+Replaces `write_data()` (lines 111-120), which currently `json.dumps`s the transformed `FeatureCollection` to `../data/export.geojson`.
 
-### DB access
+### 6.1 DB access
 
-Python → PostGIS via [`psycopg`](https://www.psycopg.org/psycopg3/) (psycopg3), the standard modern choice. Geometry handling: the transform stage's output geometries are GeoJSON-shaped dicts (from `osm2geojson`/Shapely under the hood) — convert to WKB/EWKB for the insert using `shapely.geometry.shape(feature["geometry"]).wkb_hex` (the repo already depends on `shapely` per `scripts/requirements.txt`) and let PostGIS's `ST_GeomFromWKB(%s, 4326)` (or `ST_GeomFromEWKB`) do the conversion server-side, rather than pulling in a heavier ORM/geometry-adapter layer. This keeps the new dependency footprint to `psycopg[binary]` on top of what's already installed.
+Python → PostGIS via [`psycopg`](https://www.psycopg.org/psycopg3/) (psycopg3). New dependency footprint: `psycopg[binary]` only.
 
-### Batch UPSERT strategy
+### 6.2 Geometry handling
 
-One statement shape, executed in batches (`psycopg`'s `executemany`/`execute_batch`, or building a single multi-row `INSERT` per batch for fewer round trips):
+The prior version round-tripped geometry through Shapely: transform output geometry (a GeoJSON dict) → `shapely.geometry.shape(...).wkb_hex` → `ST_GeomFromWKB(%s, 4326)`.
+
+Post-pivot, geometry **originates as a PostGIS `geom`** in `osm_raw`. The pure transforms never inspect or modify geometry (verified: `transform_*` only spread `**feature` and mutate `properties`). So:
+
+**Recommendation: the ingestion SQL emits `ST_AsEWKB(geom)`; the loader passes those bytes straight into the UPSERT** as a bound parameter to `ST_GeomFromEWKB(%s)` (or `ST_GeomFromWKB(%s, 4326)` for plain WKB). The geometry is carried opaquely through the adapter and transforms as `feature["geometry"]` (the transforms' `**feature` spread copies it untouched) and never parsed in Python. This drops the Shapely `shape()` + `wkb_hex` step — and likely `shapely` from the loader's dependencies entirely (confirm during the split; keep it only if a geometry fix-up path is wanted, though `ST_MakeValid` in SQL is the better place for that).
+
+Alternative kept on the table: emit `ST_AsGeoJSON(geom)` instead, matching persistence-layer.md §5's illustrative `ST_GeomFromGeoJSON(%(geometry_json)s)` UPSERT and keeping geometry human-readable mid-pipeline (useful if a data-quality check or log wants to see it). Minor divergence either way — see §10 and reconcile with persistence-layer.md.
+
+### 6.3 Batch UPSERT
+
+One statement shape, executed in batches (`psycopg`'s `executemany` / a multi-row `INSERT` per batch). Reconciled against persistence-layer.md §1.1/§5's actual schema (the prior version's illustrative `properties`/`updated_at` columns don't exist — it's a hybrid of dedicated columns + a `tags jsonb` bag, and the bookkeeping column is `last_seen_at`):
 
 ```sql
-INSERT INTO features (osm_type, osm_id, feature_type, geom, properties)
-VALUES (%s, %s, %s, ST_GeomFromWKB(%s, 4326), %s)
-ON CONFLICT (osm_type, osm_id)
-DO UPDATE SET
-    feature_type = EXCLUDED.feature_type,
-    geom = EXCLUDED.geom,
-    properties = EXCLUDED.properties,
-    updated_at = now();
+INSERT INTO features (
+    osm_type, osm_id, feature_type, geom,
+    cycleway_left, cycleway_right, cycleway_left_buffer, cycleway_right_buffer,
+    bicycle,
+    route, cycle_network, ref, name, state,
+    tags
+) VALUES (
+    %(osm_type)s, %(osm_id)s, %(feature_type)s, ST_GeomFromEWKB(%(geom_ewkb)s),
+    %(cycleway_left)s, %(cycleway_right)s, %(cycleway_left_buffer)s, %(cycleway_right_buffer)s,
+    %(bicycle)s,
+    %(route)s, %(cycle_network)s, %(ref)s, %(name)s, %(state)s,
+    %(tags)s
+)
+ON CONFLICT (osm_type, osm_id) DO UPDATE SET
+    feature_type          = EXCLUDED.feature_type,
+    geom                  = EXCLUDED.geom,
+    cycleway_left         = EXCLUDED.cycleway_left,
+    cycleway_right        = EXCLUDED.cycleway_right,
+    cycleway_left_buffer  = EXCLUDED.cycleway_left_buffer,
+    cycleway_right_buffer = EXCLUDED.cycleway_right_buffer,
+    bicycle               = EXCLUDED.bicycle,
+    route                 = EXCLUDED.route,
+    cycle_network         = EXCLUDED.cycle_network,
+    ref                   = EXCLUDED.ref,
+    name                  = EXCLUDED.name,
+    state                 = EXCLUDED.state,
+    tags                  = EXCLUDED.tags,
+    last_seen_at          = now();
 ```
 
-(Column names illustrative — the persistence layer owns the actual schema; this shows the query shape the loader needs the schema to support, which is the thing to reconcile with `persistence-layer.md`.) Batch size: a few hundred to a thousand rows per `executemany` call is a reasonable starting point for ~5-6k features (today's total feature count, per `data/export.geojson`) — no need to tune this until real volume is known.
+The loader maps transform output → this column set:
+- `osm_type` / `osm_id` from the transforms' `osmType` field (§5.2) and `properties.id`.
+- `feature_type` (the Postgres enum `road` / `path` / `route`, persistence-layer.md §1.1) derived from which transform produced the row: `transform_road_feature` → `road`, `transform_path_feature` → `path`, `transform_relation_feature` → `route`. This classification has no OSM-native equivalent — it's the `transform_way_feature` dispatch result.
+- `cycleway_left_buffer` / `cycleway_right_buffer` are `BOOLEAN NOT NULL` in the schema; the transform emits `cyclewayLeftBuffer: "yes"` or the key absent → map to `true` / `false`.
+- `highwayType` from the pipeline is **not** stored (persistence-layer.md §1.2 — redundant with `feature_type = 'path'`).
+- The full raw tag dict goes into `tags` as well, unfiltered (persistence-layer.md §1.2's hybrid — dedicated columns *and* the raw bag).
 
-### Transaction scope
+`first_seen_at` is deliberately not in the `DO UPDATE SET` list — it keeps its original insert-time value across re-ingestion. Batch size: a few hundred to a thousand rows per call is reasonable for today's ~5-6k features; no need to tune until real volume is known.
 
-**Recommendation: whole run in one transaction.** Open the connection/transaction once at the start of the loader, execute all batched UPSERTs within it, commit once at the end (or roll back entirely on any error). Reasoning:
-- The failure mode to avoid is a partially-applied run — e.g. Charlotte's cluster loads fine, but the process crashes or Overpass times out mid-way through a second cluster, leaving PostGIS with new Charlotte data but stale-or-partial data for the rest. A single transaction means a failed run leaves PostGIS exactly as it was before the run started (last night's good data), which is a safe, well-understood failure mode — "today's cron failed, we'll get it tomorrow" — rather than a half-updated dataset serving live traffic through the API layer in between.
-- The dataset size (thousands of rows, not millions) makes one long-lived transaction practical — this isn't a scale where transaction duration/lock contention is a real concern yet.
-- Trade-off being accepted: no partial credit for a run that fetches Charlotte fine but fails on a later cluster — everything-or-nothing. Given the daily cadence and that this isn't in any request's critical path (§2 of multi-city-expansion.md already ruled out JIT ingestion for that reason), that's the right trade for now. Revisit only if per-cluster partial success becomes something Sean actually wants (e.g. per-cluster transactions with a summary of which clusters succeeded) — flagged as a possible future refinement, not needed for v1.
+### 6.4 Transaction scope
 
-### Deletions (features removed from OSM since the last run)
+**Whole run in one transaction.** Open the connection/transaction once, run all batched UPSERTs (and, if §10's deletion decision goes that way, the delete pass) within it, commit once at the end or roll back entirely on any error.
 
-Open question — flagged explicitly rather than assumed either way. UPSERT alone only ever adds/updates rows; it never removes a row for a way that OSM no longer shows (torn out bike lane, relation retagged, etc.). Two options:
-1. **Leave it out of scope for now** — matches the "don't build what isn't needed yet" posture elsewhere in these docs (e.g. multi-city-expansion.md explicitly deferring routing, live sync). Stale rows for genuinely-removed infrastructure would accumulate slowly and silently.
-2. **Detect and delete**: track which `(osm_type, osm_id)` pairs were seen in a given run (already computed for the UPSERT batch) and, at the end of the run, delete any row in the features table whose city/bbox falls within the run's query coverage but whose key wasn't in this run's result set. This is a "diff against what should still be there" pass, not a full-table wipe — has to be scoped to the run's actual query coverage or it would incorrectly delete data belonging to cities not touched in that run (relevant once clustering means not every run necessarily touches every city, if partial/incremental runs are ever introduced).
+- The failure mode to avoid is a partially-applied run — one AOI's data fresh, the rest stale/partial, served live through the API in between. A single transaction means a failed run leaves `features` exactly as it was before the run started ("today's cron failed, we'll get it tomorrow") — a safe, well-understood failure mode.
+- Thousands of rows, not millions — one long-lived transaction is practical; lock contention isn't a real concern at this scale yet.
+- Trade-off accepted: no partial credit. Given the daily cadence and that ingestion isn't in any request's critical path, that's the right trade for v1. Revisit only if per-AOI partial success becomes something Sean wants.
 
-No recommendation here — see §9. This is squarely a "needs Sean's call" item since it trades off implementation effort now against silently-stale data later, and the right answer may depend on how often OSM data for this area actually gets torn out in practice (probably rare, but unverified).
+### 6.5 Deletions (features removed from OSM since the last run)
 
-## 7. Retry/rate-limit behavior
+UPSERT alone never removes a row for a way OSM no longer shows (torn-out lane, retagged relation).
 
-The existing exponential backoff in `fetch_data_for_area` (soon `fetch_data_for_bbox`) — 5 attempts, doubling backoff capped at 60s, explicit 429/504 handling with `Retry-After` header support (`fetch_data.py` lines 32-90) — is already solid and carries forward unchanged; this plan doesn't redesign it, per the task brief.
+**The pivot makes detect-and-delete materially more tractable.** A full regional extract, clipped to every configured AOI every run, gives an **authoritative per-run picture** of everything currently in OSM across the covered areas. The prior version's core objection — "an Overpass query might have returned empty or truncated results, so a missing element doesn't reliably mean 'deleted'" — largely falls away: a Geofabrik extract is complete and static, not a rate-limited query result. After a successful whole-run load, any `features` row whose `(osm_type, osm_id)` lies within the union of this run's AOIs but was not in this run's result set is a genuine removal candidate.
 
-**Does bbox-based querying change the rate-limiting risk profile? Yes, it should reduce it, and the reasoning holds up:** multi-city-expansion.md §2 already documented that the current *area*-based approach hits Overpass rate limits at just 4 sequential queries (`data/overpass_area_*_resp.txt` are captured `rate_limited`/`timeout` error responses from exactly this). The bbox+clustering strategy in §3 reduces the seed-city case from 4 sequential Overpass calls to 1, which directly reduces request volume against the same public instance — fewer round trips is the mechanism, and it's the same mechanism multi-city-expansion.md §4.3 point 2 cites as the reason to prefer this approach. This isn't a new claim, just confirming the existing recommendation's stated reasoning checks out against the actual number of calls each approach makes (4 → 1 for today's data, growing sub-linearly with clustering as more cities are added, vs. linearly with one-query-per-city). The retry logic remains necessary regardless — Overpass is a shared public resource and can rate-limit any client regardless of query count — but the steady-state load this pipeline places on it goes down.
+Still **Sean's call for v1** — it trades implementation effort now against slowly accumulating stale rows. persistence-layer.md §5's `last_seen_at` already keeps the door open without committing to the logic. If "detect and delete" is chosen, scope the delete to the run's actual AOI coverage (a full-extract run touches every configured AOI, so in the common case that's "all configured AOIs" — the scoping only matters if partial runs are ever introduced). Cross-refs: prd.md §8 Q3, architecture.md §5, persistence-layer.md §5. See §10.
+
+## 7. Acquire-step resilience (replaces the Overpass retry/rate-limit loop)
+
+The old `fetch_data_for_area` exponential-backoff loop — 5 attempts, doubling backoff capped at 60s, explicit 429/504 handling with `Retry-After` support (`fetch_data.py` lines 32-90) — is **retired**. It existed to survive a rate-limited shared query service. There is no such service in the pipeline anymore.
+
+What replaces it is much simpler, and applies only to the acquire step (§3.1):
+
+- **HTTP retry on the `.pbf` download** — a few attempts with a modest fixed or linearly growing delay, for transient CDN/network errors only. No 429/`Retry-After` semantics — Geofabrik serves a static file, it doesn't rate-limit.
+- **Integrity check** — verify the downloaded file against Geofabrik's companion `.osm.pbf.md5`; apply a size floor (a few-KB body is an error page).
+- **Fall back to the cached previous `.pbf`.** If every retry fails, or the checksum doesn't match, **proceed with the last successfully cached extract** and log loudly that the data may be up to ~24h (or more) stale. Only hard-fail the run if there is no cached copy at all (first-ever run). "Proceed on yesterday's copy" is the whole point of building from a static file (multi-city-expansion.md §4.3).
+- **`osmium` / `osm2pgsql` steps get no retry logic** — they're local, deterministic, CPU/IO-bound. A failure there (bad flex config, corrupt `.pbf`, disk full) is a real bug and should fail the run visibly, not be retried.
 
 ## 8. Orchestration change
 
 ### `osm-refresh.yml`
 
-Current last two steps (`.github/workflows/osm-refresh.yml` lines 42-52): run `fetch_data.py`, then `aws s3 sync . s3://bikemap/` from `./data`. New shape:
-- `Run fetch_data.py` step stays (renamed/adjusted if the entry-point script is renamed, e.g. if `fetch_data.py` is split into fetch/transform/load modules — a reasonable refactor given the new loader responsibility, but not required by this plan).
-- `Upload to s3 bikemap container` step is **removed** — there is no longer a static file to sync; PostGIS is read live by the API layer (Contract C).
-- New final step: **run the loader against the DB** — the script connects to PostGIS using connection details from GitHub Actions secrets/environment (analogous to how `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are wired today via the `bikemap-staging` environment) — e.g. `DATABASE_URL` or discrete `PG*` env vars pointing at wherever PostGIS is hosted (now the EC2 box described in [deployment.md](../deployment.md), but this Epic 4 story itself still doesn't need that wired up today — it's a future story's concern, just now backed by a real plan instead of an open question).
-- Optionally, a data-quality-check step (§9) runs after the loader step and fails the workflow (non-zero exit) if checks don't pass — surfacing ingestion problems as a red CI run instead of silent bad data reaching the API/frontend.
+Current last two steps (`.github/workflows/osm-refresh.yml` lines 42-52): run `fetch_data.py`, then `aws s3 sync . s3://bikemap/`. Both go away. New shape:
+
+1. **Setup Python + install `scripts/requirements.txt`** — as today.
+2. **Install `osmium-tool` and `osm2pgsql`** — apt packages on `ubuntu-latest` (or a prebuilt image that carries them).
+3. **Acquire** — download/refresh the Geofabrik NC `.osm.pbf` + `.md5`, verify (§3.1/§7). Back it with `actions/cache` keyed on the date.
+4. **Clip** — `osmium extract --strategy=smart` per `data/cities.json` AOI (§3.2).
+5. **Load raw** — `osmium merge` the clips → one `.pbf` → `osm2pgsql` (flex config) into `osm_raw`, drop-and-reload (§3.3).
+6. **Ingest** — run the ingestion SQL + adapter + transforms + batch UPSERT into `features`, one transaction (§3.4–§6). DB connection from workflow secrets/environment (`DATABASE_URL` or discrete `PG*` vars).
+7. **Data-quality check** — `scripts/check_data_quality.py` (Epic 6 owns the script; this is the workflow seam), immediately after the loader, failing the workflow on a bad run (§9).
+
+- The `aws s3 sync` step and its `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` are removed — there is no static file to publish; the API reads `features` live (Contract C).
+- There are **no upstream credentials** anymore — no Overpass key, no third-party API secret. Just a public download URL and a DB connection string. The `bikemap-staging` environment still supplies the DB connection secrets (analogous to how it supplied the AWS keys).
 
 ### Local dev
 
-Per testing-and-tooling.md §1, the same pipeline runs locally against the docker-compose PostGIS instance: `docker compose up -d postgis` (or whatever service name the compose file uses, owned by persistence-layer.md), then `python fetch_data.py` (or its renamed successor) with `DATABASE_URL`/`PG*` env vars pointed at the compose-exposed Postgres port (typically `localhost:5432` with compose's default port mapping). This is the same script, same env-var-driven connection config, as CI — no special-cased local path — which is the local-dev-parity goal testing-and-tooling.md §1 states explicitly.
+Same pipeline, same env-var-driven DB config as CI — no special-cased local path (testing-and-tooling.md §1 parity goal):
+
+```
+docker compose up -d db                       # persistence-layer.md §6 service
+dotnet ef database update                     # from db/Migrations — features schema
+python -m scripts.pipeline.acquire            # or the orchestrator entry point
+python -m scripts.pipeline.clip_load_raw
+python -m scripts.pipeline.ingest             # DATABASE_URL / PG* pointed at localhost:5432
+```
+
+The `.pbf` is cached in a gitignored `data/osm-cache/` dir (or a compose volume) so local iteration doesn't re-download 300 MB. Because `osm_raw` is drop-and-reload and the ingestion SQL + transforms run against already-downloaded raw data, iterating on transform logic or feature shape is a re-run of the `ingest` step only — no re-acquire, no re-clip.
 
 ## 9. Testing approach
 
-Mapping testing-and-tooling.md §2's four backend categories onto this pipeline specifically:
+Mapping testing-and-tooling.md §2's backend categories onto the pivoted pipeline.
 
-### Unit tests (transform functions — pure, no I/O, currently zero coverage)
+### Unit tests — pure transform functions (top-value item, unchanged)
 
-Realistic cases given the actual tag logic in `fetch_data.py`:
-- `transform_road_feature`: `cycleway:left`/`cycleway:right` set independently → both `cyclewayLeft`/`cyclewayRight` populated correctly and independently; `cycleway:both` set → both sides inherit its value; bare `cycleway` (no `:left`/`:right`/`:both`) → both sides fall back to it (current precedence: `:right`/`:left` specific value, then `:both`, then bare `cycleway` — lines 199-208); no cycleway tags at all → both `cyclewayLeft`/`cyclewayRight` keys absent from output (lines 232-235 explicitly delete them, not just leave falsy); buffer detection (`hasCyclewayBufferValue`, lines 179-192) — `"yes"` → `True`; `"no"`/`"0"`/`None` → `False`; a distance-with-unit string like `"1.5 m"` → `True` (positive numeric); a `"0 m"` or malformed string → `False`; confirm the regex-based numeric parsing doesn't throw on tags with no unit suffix (e.g. bare `"2"`).
-- `transform_path_feature`: `highway=cycleway` → `bicycle: "designated"` regardless of a `bicycle` tag's own value; `bicycle=designated` (highway not cycleway) → `"designated"`; `bicycle=yes` alone → `"yes"`; neither → `"unknown"`; confirm `highwayType: "path"` is always set.
-- `transform_relation_feature`: a route relation with `tags.type == "route"` → passes through with tags spread over properties; **specifically assert the `osm_type`/`osmType` extraction from §5 survives correctly** — this is the collision found while reading the current output and is exactly the kind of case a unit test should pin down so it can't regress.
-- `transform_way_feature`/dispatcher: a `highway` value in `highway_roads` routes to `transform_road_feature`; a value in `highway_paths` routes to `transform_path_feature`; a `highway` value in neither list, or a way with no `tags` at all, → `None`/filtered out (matches current `unknown_features` bucketing, lines 254-261, 268-280). Also worth a regression test for the existing bug at line 133-134 (`"tertiary_link"` and `"living_street"` are concatenated into one string with no comma, so `"living_street"` is currently *not* actually in `highway_roads` as its own entry) — flagged here as a pre-existing bug found while reading the file, not something to silently fix as a side effect of this doc, but worth a test that documents current behavior either way and lets Sean decide whether to fix it.
+Still the highest-value gap to close, and independent of everything upstream. Cases follow the actual tag logic in `fetch_data.py`:
+- `transform_road_feature`: `cycleway:left`/`:right` set independently → both sides populated independently; `cycleway:both` → both inherit; bare `cycleway` → both fall back (precedence: specific side, then `:both`, then bare — lines 201-210); no cycleway tags → both keys absent (lines 234-237 delete them). `hasCyclewayBufferValue` (lines 181-194): `"yes"` → `True`; `"no"`/`"0"`/`None` → `False`; `"1.5 m"` → `True`; `"0 m"`/malformed → `False`; bare `"2"` doesn't throw.
+- `transform_path_feature`: `highway=cycleway` → `bicycle: "designated"` regardless of a `bicycle` tag; `bicycle=designated` → `"designated"`; `bicycle=yes` alone → `"yes"`; neither → `"unknown"`; `highwayType: "path"` always set.
+- `transform_relation_feature`: route relation with `tags.type == "route"` → **assert `properties.osmType == "relation"` survives** (the §5.2 collision — the case that must never silently regress); `properties.id` unaffected.
+- `transform_way_feature` dispatcher: `highway` in `highway_roads` → road; in `highway_paths` → path; in neither, or no `tags` → `None` / `unknown_features` (lines 256-263). Regression test for the `highway_roads` missing-comma bug: `highway=living_street` with real `cycleway` tags → routes to `transform_road_feature`, not dropped.
 
-### Integration tests (against containerized PostGIS, per testing-and-tooling.md §1)
+### Ingestion SQL (new — now a testable artifact)
 
-- Loader UPSERT inserts a new `(osm_type, osm_id)` correctly (geometry, properties round-trip intact).
-- Re-running the loader with the same input is idempotent — same row count after two runs of identical data (this is Contract B's core guarantee, worth a direct test rather than just trusting the SQL).
-- Re-running with a changed property (e.g. a way's `cycleway` tag changed between runs) updates the existing row in place rather than duplicating it.
-- Two overlapping-bbox clusters both containing the same OSM element, fed through the loader, result in exactly one row (validates §4's in-memory dedup *and* the UPSERT's own idempotency as a belt-and-suspenders check).
-- Spatial query sanity: after loading, a basic `ST_Intersects`/bbox range query against the loaded data returns the expected features (this also doubles as an early smoke test for whatever the persistence-layer schema/index design lands on).
+Seed a small `osm_raw` (a handful of ways + relations with known tags, including one `highway=proposed`, one way matching two clauses at once, one `route=bicycle` relation, one way with a `cycleway:left` key only). Run the §3.4 query. Assert the emitted `(osm_type, osm_id)` set is exactly the expected one, `highway=proposed` is excluded, and the multi-clause way appears once. Runs against the containerized `db`.
 
-### Data-quality checks (post-ingestion validation, a distinct step from code-correctness tests)
+### Flex config / `osm2pgsql` load (new — spike, then regression test)
 
-Concrete, run as a script step after the loader in `osm-refresh.yml` (§8) — not part of the pytest suite, since these check *this run's data*, not the code:
-- **Feature-count sanity per city**: after loading, query PostGIS for a rough feature count within each configured city's bbox and compare against a sane floor (e.g. "not zero," or "not less than X% of last run's count for this city") — catches an Overpass query silently returning empty/truncated results for one city without failing the whole run.
-- **Geometry validity**: `ST_IsValid(geom)` over newly-touched rows — catches malformed geometries from `osm2geojson`/Shapely conversion before they reach the API layer.
-- **Duplicate OSM id check**: a `GROUP BY (osm_type, osm_id) HAVING COUNT(*) > 1` query against the features table should always return zero rows given the UPSERT's unique constraint — this is really a constraint-enforcement smoke test (if it ever returns rows, the UPSERT/schema contract itself is broken, which is a bigger problem than data quality), but cheap enough to run every time as a tripwire.
-- Where this runs: a small standalone script (e.g. `scripts/check_data_quality.py`) invoked as its own GitHub Actions step after the loader, exiting non-zero (failing the workflow) if any check fails. Keeping it a separate step (not folded into the loader itself) makes it independently runnable locally and keeps "load the data" and "validate the data" as distinct, individually-debuggable failures in CI logs.
+**Spike first (do not assume — see §3.3, §10):**
+- (a) `route=bicycle` relations land in `osm_raw` with assembled `(Multi)LineString` geometry under the chosen flex config (not dropped, not emitted as bare member refs).
+- (b) `osmium extract --strategy=smart` retains route-relation member ways that cross the clip boundary.
+
+Then a **regression test**: a tiny checked-in fixture `.osm.pbf` (a few hand-built elements including a 2-member `route=bicycle` relation straddling a clip line), run through the real clip + `osm2pgsql` path, asserting geometry assembly and boundary-member retention. Insurance against a future flex-config or `osmium` change silently dropping route geometry.
+
+### Adapter (new)
+
+Given a raw row as `psycopg` returns it, assert the emitted dict has exactly the `{properties: {tags, type, id}, geometry}` shape the transforms consume; `tags` round-trips from `jsonb`; `type` is `"way"` / `"relation"` from the raw element-type column; geometry is carried through opaquely (§6.2).
+
+### Integration tests (against containerized PostGIS)
+
+- Loader UPSERT inserts a new `(osm_type, osm_id)` correctly (geometry + all mapped columns + `tags` round-trip intact).
+- Re-running the loader with identical input is idempotent — same row count, `first_seen_at` stable, `last_seen_at` advances (Contract B's core guarantee).
+- Re-running with a changed tag updates the row in place, no duplicate.
+- **The same OSM element present in two overlapping AOI clips**, fed through the loader, results in exactly one row (validates §4 *and* the UPSERT's own idempotency).
+- Spatial sanity: after loading, a bbox `ST_Intersects` query returns the expected features (also an early smoke test for the persistence-layer index design).
+
+### Data-quality checks (post-ingestion, a distinct `osm-refresh.yml` step)
+
+Run as a script step after the loader, failing the workflow on a bad run. Reworded for the pivot:
+- **A clip produced zero features for a configured AOI** — after load, count `features` within each AOI and compare to a floor ("not zero", "not less than X% of last run for this area"). Catches a broken clip / a bad AOI polygon, not "an Overpass query silently returned empty."
+- **The extract is stale** — the cached `.pbf` is older than N days, or older than the current Geofabrik-published timestamp by more than a threshold (the §7 fallback proceeded on an old copy and nothing recovered since).
+- **Geometry validity** — `ST_IsValid(geom)` over newly-touched rows.
+- **Duplicate `(osm_type, osm_id)` tripwire** — `GROUP BY (osm_type, osm_id) HAVING count(*) > 1` should always be empty given the unique constraint; cheap to run as a constraint-enforcement canary.
+
+Build-out is `scripts/check_data_quality.py` (Epic 6 owns it — see epics.md); this doc only specifies the checks and that it's a separate, independently-runnable step from the loader.
 
 ### Contract tests (guarding Contract A's property shape)
 
-Contract A (architecture.md §2) lists the exact properties the frontend keys off: `cyclewayLeft`/`cyclewayRight` (enumerated values), `cyclewayLeftBuffer`/`cyclewayRightBuffer`, `bicycle`, `highwayType`, `route`/`cycle_network`/`ref`/`name`/`state`. A contract test suite asserts, for representative synthetic OSM input, that `transform_data`'s output features contain exactly these properties with values from the documented enumerations — e.g. `cyclewayLeft` is always one of `track`/`lane`/`share_busway`/`shared_lane`/`shoulder` or the key is absent, never some other raw OSM tag value the frontend doesn't have style logic for. This overlaps with the unit tests in intent but is worth keeping as its own named suite (rather than folded into "unit tests") specifically because its job is to fail loudly if a transform change would silently break the UI layer — the property shape is the thing that must never drift without a coordinated change to `website/src/bikemap-app.js`, `website/src/colors.js`, and this doc together.
+Unchanged. For representative synthetic OSM input covering road / path / route, assert `transform_data`'s output features contain exactly the properties Contract A (architecture.md §2) lists — `cyclewayLeft`/`cyclewayRight` (values `track`/`lane`/`share_busway`/`shared_lane`/`shoulder` or absent), `cyclewayLeftBuffer`/`cyclewayRightBuffer`, `bicycle`, `highwayType`, `route`/`cycle_network`/`ref`/`name`/`state` — with values from the documented enumerations, never a raw OSM tag value the frontend has no style logic for. Its job is to fail loudly if a transform change would silently break `website/src/bikemap-app.js` / `website/src/colors.js`. Kept as its own named suite.
 
 ## 10. Open questions for Sean
 
-- **Persistence-layer natural key (Contract B dependency)**: this doc assumes the features table has a unique constraint on `(osm_type, osm_id)` (or two separate columns forming a composite key) that the `ON CONFLICT` clause in §6 can target. Flagging explicitly for `persistence-layer.md` to confirm/own — this doc does not invent an alternate dedup scheme per Contract B's instruction, but the persistence schema needs to actually expose this key for the SQL in §6 to work as written.
-- **Deleted/removed OSM features (§6)**: does a bike lane OSM shows as removed need to be deleted from PostGIS, or is stale-row accumulation acceptable for now? No recommendation made — genuinely undecided, and the right answer may hinge on how often this actually happens in practice (unverified). If "delete" is the answer, it also needs a decision on scope-of-deletion (only within the run's query coverage, to avoid deleting untouched cities' data — see §6 option 2).
-- **`osm_type` extraction approach (§5)**: recommended the additive `osmType` field inside `transform_relation_feature` (and, for symmetry, the road/path transforms) over parallel-list bookkeeping in the loader. This is a small change to a function this doc otherwise says should carry forward unchanged — flagging for explicit sign-off since "unchanged" was the brief, and this is a deliberate, narrow exception to it.
-- **Splitting `fetch_data.py`**: this doc doesn't mandate splitting the single script into fetch/transform/load modules, but the loader is a genuinely new responsibility (network + DB I/O) being added alongside fetch (network I/O) and transform (pure). Worth a lightweight decision on whether to keep it one file (matches today's structure, simplest diff) or split for testability (unit tests in §9 want to import transform functions without pulling in `psycopg`/DB connection code at import time) — leaning toward splitting, but calling it out rather than assuming.
-- **Cluster-distance threshold (§3)**: proposed "~15-20 km or adjacent/overlapping bboxes" as a starting heuristic for clustering cities into shared Overpass queries. This is a reasonable default, not a researched number — fine to tune once `cities.json` actually has more than the current four (all mutually close) entries to test against.
+- **`osm2pgsql` flex (Lua) vs. the legacy C-transform output.** *Recommendation: flex.* Load-time tag filtering keeps `osm_raw` small; flex lets us define exactly the minimal table shapes we want (`ways` / `route_relations`, `tags` as `jsonb`, geometry per object) instead of `osm2pgsql`'s default rendering-oriented schema. Cost: the Lua config is harder to unit-test than Python. Mitigation, and the design rule this doc follows: **keep all transform logic in Python** — flex only *selects and minimally shapes*, it derives no rendering properties. Confirm this split.
+- **`osmium` clip input: relation boundary polygon vs. hand-drawn bbox per AOI.** *Recommendation: derive a GeoJSON boundary polygon locally from the NC extract, cached at `data/aoi/<osmRelationId>.geojson` (§2); `bbox` still allowed for ad-hoc rectangles.* Sub-question: **commit the derived `data/aoi/*.geojson` to the repo** (small, changes rarely, a boundary-polygon diff is a meaningful review signal when someone bumps coverage) **or treat it as a gitignored build cache** (smaller repo; a fresh checkout must re-derive before its first clip). Leaning commit.
+- **Extract refresh cadence: full nightly re-download vs. `.osc.gz` diffs (`pyosmium-up-to-date`).** *Recommendation: full re-download for v1* — simplest, statelessly correct, ~300 MB off a CDN is cheap. Diffs add a stateful "local copy at the right sequence number" concern; adopt only if the download becomes a nuisance (multi-city-expansion.md §4.3 already frames it as optional).
+- **Raw schema lifecycle.** *Recommendation: `osmium merge` all clips → one deduplicated `.osm.pbf` → one `osm2pgsql` load into a single `osm_raw` schema, drop-and-reload (`osm2pgsql`'s native model).* Confirm: (a) drop-and-reload vs. truncate-and-reload (truncate matters only if something holds an FK into `osm_raw` or `osm2pgsql` permissions make DROP awkward — neither expected); (b) one schema fed by all clips (recommended) vs. a schema/prefix per AOI (more moving parts, no benefit given merge-first dedup).
+- **Geometry format out of the ingestion SQL: `ST_AsEWKB` vs. `ST_AsGeoJSON` (§6.2).** *Recommendation: EWKB* — the pure transforms never touch geometry, so the Shapely round-trip is pure overhead. This is a minor divergence from persistence-layer.md §5's illustrative `ST_GeomFromGeoJSON` UPSERT — flag for that doc to reconcile (both are one-line changes; no schema impact).
+- **Deleted-OSM-feature handling (§6.5).** The pivot moves this from "hard to know what was removed" to "buildable" — a full regional extract is an authoritative per-run picture. *Recommendation: still defer detect-and-delete for v1* (matches the "don't build what isn't needed yet" posture), but get explicit sign-off rather than defaulting silently, and if "build it" is the answer, confirm the scope-of-deletion rule (run's AOI coverage). Cross-refs: prd.md §8 Q3, architecture.md §5, persistence-layer.md §5.
+- **Module split — now clearly *yes*.** The prior version left "split `fetch_data.py`?" genuinely open. The pivot makes it obvious: three stages with genuinely different dependency footprints —
+  - `acquire` — HTTP download + checksum; no DB, no `osmium`, no `psycopg`.
+  - `clip_load_raw` — shells out to `osmium` / `osm2pgsql`; no `psycopg`, no transform imports.
+  - `ingest` — `psycopg` + the adapter + the pure transforms; no `osmium`.
+  *Recommended boundaries:* a `scripts/pipeline/` package with `acquire.py`, `clip_load_raw.py`, `adapter.py`, `ingest.py`, and **`transform.py` holding the pure `transform_*` functions with zero heavy imports** (the concrete testability driver — unit tests import it without pulling in `psycopg` or `osmium`). A thin `scripts/pipeline/__main__.py` (or the workflow itself) sequences the stages. `scripts/fetch_data.py` is deleted. Confirm the package layout / names.

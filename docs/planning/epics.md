@@ -1,7 +1,7 @@
 ---
 title: CLT Bicycle Map — Epics
 created: 2026-08-17
-updated: 2026-08-25
+updated: 2026-08-28
 ---
 
 # Epics: multi-city migration
@@ -22,7 +22,7 @@ Epic 1: Persistence foundations (PostGIS + schema, containerized)
         ▼              ▼                     ▼
 Epic 2: Bbox API   Epic 4: Ingestion refactor │
         │              (config-driven,        │
-        ▼               bbox-based)           │
+        ▼               extract-based)        │
 Epic 3: Frontend       │                      │
 viewport fetching      │                      │
         │              │                      │
@@ -98,24 +98,24 @@ Epics 2+3 (serve + render the *existing* 4-city data live) and Epic 4 (refactor 
 
 ---
 
-### Epic 4 — Ingestion pipeline refactor: config-driven, bbox-based
+### Epic 4 — Ingestion pipeline refactor: config-driven, extract-based
 
-**Goal:** Replace the four hardcoded `fetch_data_for_area()` calls with `data/cities.json`, switch Overpass queries from admin-polygon to bbox+proximity-clustering, and replace `write_data()` with a real UPSERT loader into PostGIS. Update `osm-refresh.yml` to stop syncing to S3 and instead run the loader (and a data-quality check) against the database.
+**Goal:** Replace `fetch_data.py`'s per-area Overpass queries with a batch pipeline built from a static regional OSM extract — no Overpass anywhere in the automated pipeline. Download and cache the Geofabrik North Carolina `.osm.pbf`; `osmium extract --strategy=smart` it to each `data/cities.json` area's AOI (boundary polygon or bbox, overlaps expected); `osm2pgsql` (flex/Lua config, cycling tags only) the clips into a dedicated `osm2pgsql`-owned `osm_raw` schema (drop-and-reload, *not* EF-migration-managed); run an ingestion SQL query against `osm_raw` that reproduces the old Overpass QL's six selection clauses (minus `highway=proposed`); feed the rows through the existing, unchanged `transform_*` functions via a thin adapter that replaces `json2geojson`; and psycopg3 batch-UPSERT into `features` on `(osm_type, osm_id)`, whole run in one transaction. Update `osm-refresh.yml` to drop **both** the Overpass call **and** `aws s3 sync` — the workflow becomes acquire → clip → load-raw → ingestion-SQL + transform → UPSERT, then a data-quality check step.
 
 **Realizes:** FR-6 (coverage grows via config change alone), SM-2, and — via the two bug fixes below — restores FR-1 and FR-3's testable consequences to actually holding.
 
-**Scope:** Per [application-layer.md](./layers/application-layer.md) in full — `data/cities.json` schema + relation→bbox resolution (§2), bbox Overpass query + proximity clustering (§3), in-memory dedup across overlapping cluster queries (§4), transform stage (§5, unchanged except the fix below), loader (psycopg3, batch UPSERT, whole-run transaction, §6), retry/backoff (§7, unchanged), workflow changes (§8), unit/integration/data-quality/contract tests (§9).
+**Scope:** Per [application-layer.md](./layers/application-layer.md) in full — `data/cities.json` schema + local `data/aoi/<relationId>.geojson` boundary-polygon derivation from the extract (§2); acquire + cache the Geofabrik NC `.osm.pbf` (§3.1); `osmium extract --strategy=smart` clip per AOI (§3.2); `osmium merge` + `osm2pgsql` flex-config load into the `osm_raw` schema, drop-and-reload (§3.3); the ingestion SQL reproducing the six Overpass QL clauses, geometry out as EWKB (§3.4); overlap/dedup via merge-first + `DISTINCT ON` (§4); transform stage + the `json2geojson`-replacement adapter + the `osmType` extraction (§5, transforms otherwise unchanged); loader (psycopg3, opaque EWKB geometry passthrough, batch UPSERT, whole-run transaction, §6); acquire-step resilience + cached-`.pbf` fallback (§7); `osm-refresh.yml` rewrite dropping the Overpass call and `aws s3 sync` (§8); unit / ingestion-SQL / flex-config-spike / adapter / integration / data-quality / contract tests (§9).
 
 **Must-fix, blocking (per [architecture.md §4](./architecture.md#4-status-of-the-detail-docs), not optional cleanup):**
 1. **`transform_relation_feature` clobbers `properties.type`.** Every route relation's OSM tags include `type: "route"`, silently overwriting the original `"relation"` value the loader needs for Contract B's `(osm_type, osm_id)` UPSERT key. Fix: add an explicit `osmType` field (recommended in [application-layer.md §5](./layers/application-layer.md#5-transform-stage-unchanged-plus-one-extraction), option 2) to all three transform functions, not just the broken one, for symmetry. Blocks FR-6/SM-2 for *every* bike route, not just newly-added Coverage Areas.
 2. **`highway_roads` list has a missing comma** between `"tertiary_link"` and `"living_street"`, silently merging them and dropping `living_street` ways from the map entirely. Blocks FR-1 — a rider on a `living_street` block with real cycleway tags currently sees nothing.
 
 **Decisions to close:**
-- **Deleted-OSM-feature handling** — genuinely undecided. Recommend explicitly deferring for v1 (matches the "don't build what isn't needed yet" posture elsewhere) but get Sean's sign-off on that rather than defaulting silently, since it trades implementation effort now against silently-stale rows later. [application-layer.md §6](./layers/application-layer.md#deletions-features-removed-from-osm-since-the-last-run), [§10](./layers/application-layer.md#10-open-questions-for-sean).
-- **Split `fetch_data.py` into fetch/transform/load modules?** Leaning yes (unit tests want to import transform functions without pulling in `psycopg`), but not mandated — a scoping call for whoever picks this up.
-- Cluster-distance threshold (~15-20km placeholder) — fine as a starting heuristic given all four seed cities collapse to one query regardless of the exact number.
+- **Deleted-OSM-feature handling** — still genuinely undecided, but the pivot makes it materially more tractable. Ingesting from a full regional extract, clipped to every configured AOI every run, gives an authoritative per-run picture of everything currently in OSM across the covered areas — the prior "an Overpass query might have returned empty or truncated, so a missing element doesn't reliably mean deleted" objection is gone. Recommend still deferring detect-and-delete for v1 (matches the "don't build what isn't needed yet" posture; `last_seen_at` keeps the door open), but get Sean's explicit sign-off rather than defaulting silently, and if it's "build it," confirm the scope-of-deletion rule (the run's AOI coverage). [application-layer.md §6.5](./layers/application-layer.md#65-deletions-features-removed-from-osm-since-the-last-run), [§10](./layers/application-layer.md#10-open-questions-for-sean).
+- **Ratify the recommended `scripts/pipeline/` module layout.** No longer a genuinely open "should we split `fetch_data.py`" — the stages now have distinctly different dependency footprints (acquire: HTTP + checksum only; clip/load-raw: `osmium`/`osm2pgsql` only; ingest: `psycopg` + adapter + transforms), and [application-layer.md §10](./layers/application-layer.md#10-open-questions-for-sean) recommends a concrete package: `scripts/pipeline/` with `acquire.py`, `clip_load_raw.py`, `adapter.py`, `ingest.py`, and `transform.py` (the pure `transform_*` functions, zero heavy imports — the testability driver), sequenced by a thin `__main__.py`; `scripts/fetch_data.py` deleted. This is a ratify-the-layout-and-names call, not a reopened question.
+- **Ratify [application-layer.md §10](./layers/application-layer.md#10-open-questions-for-sean)'s ingestion-mechanics recommendations as a group** — each already has a recommendation in §10; this is a sign-off, not five open designs: `osm2pgsql` flex/Lua config over the legacy C-transform output (flex only selects and minimally shapes; all rendering-property logic stays in Python); full nightly extract re-download over `.osc.gz` diff-updating for v1; `osm_raw` lifecycle = `osmium merge` all clips → one `osm2pgsql` load → single schema, drop-and-reload; geometry out of the ingestion SQL as `ST_AsEWKB` (skip the Shapely round-trip), a minor noted divergence from persistence-layer.md §5's illustrative `ST_GeomFromGeoJSON`; and commit `data/aoi/*.geojson` to the repo vs. treat it as a gitignored build cache (leaning commit).
 
-**Dependencies:** Epic 1 (schema to load into). Independent of Epics 2/3 — see §1 sequencing note on parallelizing.
+**Dependencies:** Epic 1 (schema to load into). Independent of Epics 2/3 — see §1 sequencing note on parallelizing. **Internal risk, first in this epic's own story order:** an early *blocking* spike on `osm2pgsql` + `osmium` behavior — (a) `route=bicycle` relations land in `osm_raw` with assembled `(Multi)LineString` geometry under the flex config, and (b) `osmium extract --strategy=smart` retains route-relation member ways that cross the clip boundary — must land before the clip / load-raw / ingestion-SQL stories, which depend on both holding. [application-layer.md §3.3](./layers/application-layer.md#33-load-the-clips-into-the-raw-schema), [§9](./layers/application-layer.md#9-testing-approach).
 
 ---
 
@@ -195,8 +195,8 @@ Decisions each epic is blocked or shaped by, gathered in one place. Detail and r
 | 4 | ~~GeoJSON `Feature.id` encoding~~ — **resolved: `"{osmType}/{osmId}"`, not duplicated into `properties`** | Epic 2, Epic 3 | [api-layer.md §3](./layers/api-layer.md#3-query-implementation) |
 | 5 | ~~Clip route geometry at the bbox, or return whole?~~ — **resolved: don't clip** (`ST_Intersects` only), per a real spike measuring 124,978 bytes unclipped vs. 63,601 bytes clipped for the largest currently-loaded route relation, plus mechanism-based (not live visual) reasoning about label-anchor stability — see [api-layer.md §3](./layers/api-layer.md#3-query-implementation) for the evidence-limits note | Epic 2 (blocks finalizing the route query) | [architecture.md §6](./architecture.md#6-reconciliation-with-the-prd) |
 | 6 | ~~Send `zoom` hint from the UI now?~~ — **resolved: yes, from day one (story 3.1)** | Epic 2 ↔ Epic 3 (Contract A shape) | [ui-layer.md §6](./layers/ui-layer.md#6-zoom-dependent-payload-size) |
-| 7 | Deleted-OSM-feature handling | Epic 4 | [application-layer.md §10](./layers/application-layer.md#10-open-questions-for-sean) |
-| 8 | Split `fetch_data.py` into modules? | Epic 4 (scoping only, not blocking) | same |
+| 7 | Deleted-OSM-feature handling — still open, but the Epic 4 pivot makes it *buildable*: a full regional extract gives an authoritative per-run picture, so the "can't know what was removed" objection is gone. Recommend still deferring detect-and-delete for v1, with explicit sign-off. | Epic 4 | [application-layer.md §6.5](./layers/application-layer.md#65-deletions-features-removed-from-osm-since-the-last-run), [§10](./layers/application-layer.md#10-open-questions-for-sean) |
+| 8 | ~~Split `fetch_data.py` into modules?~~ — **no longer genuinely open: application-layer.md §10 recommends a concrete `scripts/pipeline/` layout** (`acquire`/`clip_load_raw`/`adapter`/`ingest`/`transform` + thin `__main__`); Epic 4 ratifies it, doesn't re-decide. | Epic 4 (scoping only) | [application-layer.md §10](./layers/application-layer.md#10-open-questions-for-sean) |
 | 9 | `state = "proposed"` filtering location (UI vs. API/DB) | None currently — flagged as a responsibility question, current UI-side filter stays as-is unless revisited | [persistence-layer.md §9](./layers/persistence-layer.md#9-open-questions-for-sean) |
 | 10 | Target Coverage Area list beyond the current four | Epic 5 (needs *a* town picked, not a list) | [multi-city-expansion.md §7](./multi-city-expansion.md#7-open-questions-for-sean) |
 

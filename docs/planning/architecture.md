@@ -2,7 +2,7 @@
 
 Status: Draft for review
 Owner: Sean Rice
-Last updated: 2026-08-16
+Last updated: 2026-08-28
 
 Top-level architecture document for the multi-city migration described in [multi-city-expansion.md](./multi-city-expansion.md) (data/serving decisions) and [testing-and-tooling.md](./testing-and-tooling.md) (containerization/testing). Those docs made the high-level calls; this doc organizes the system into layers and links out to a detailed design for each. It doesn't relitigate decisions already made — it assumes them and works out the details.
 
@@ -14,7 +14,7 @@ Top-level architecture document for the multi-city migration described in [multi
 |---|---|---|---|
 | UI | Lit + Mapbox GL (`website/`) | Renders the map; fetches bbox-scoped data as the viewport moves; user interaction (search, directions, layer toggles) | [ui-layer.md](./layers/ui-layer.md) |
 | API | ASP.NET Core + Npgsql + NetTopologySuite | `GET /features?bbox=...` over PostGIS; the only layer that talks to both the UI and the database | [api-layer.md](./layers/api-layer.md) |
-| Application (ingestion) | Python (`scripts/`) | Batch-fetches OSM data from Overpass per `data/cities.json`, transforms tags into rendering properties, loads PostGIS | [application-layer.md](./layers/application-layer.md) |
+| Application (ingestion) | Python (`scripts/`) | Batch pipeline: clips a Geofabrik regional OSM extract to each `data/cities.json` area, loads the clips into an `osm2pgsql`-owned raw schema, then runs ingestion SQL + the existing transforms to UPSERT rendering-ready rows into `features` | [application-layer.md](./layers/application-layer.md) |
 | Persistence | PostgreSQL + PostGIS | Spatial storage, indexing, schema for the features table | [persistence-layer.md](./layers/persistence-layer.md) |
 
 All four run containerized via docker-compose for local dev and as the deploy unit (testing-and-tooling.md §1). Hosting/deployment target is now decided — see [deployment.md](./deployment.md) — but these layer plans stay host-agnostic on purpose and don't need updating to assume it.
@@ -34,7 +34,7 @@ These are the seams between layers. A detail doc can go deep on its own layer, b
 No renaming or reshaping these without updating the UI layer's style layers in the same change.
 
 **Contract B — Application ↔ Persistence.**
-The ingestion loader UPSERTs one row per OSM element keyed on `(osm_type, osm_id)`. This is what makes re-running ingestion, and overlapping city bounding boxes (§4.3 of multi-city-expansion.md), idempotent instead of duplicative. The persistence schema must expose a stable natural key for this; the application layer must not invent its own dedup logic on top.
+The ingestion loader UPSERTs one row per OSM element keyed on `(osm_type, osm_id)`. This is what makes re-running ingestion, and overlapping city clips (§4.3 of multi-city-expansion.md), idempotent instead of duplicative. The persistence schema must expose a stable natural key for this; the application layer must not invent its own dedup logic on top.
 
 **Contract C — API ↔ Persistence.**
 The API only reads from the features table (`ST_Intersects`/`&&` spatial index range scan). All writes come from the ingestion loader (Contract B). If the API layer ever wants a derived/materialized read path (e.g. pre-simplified geometries per zoom tier), that's a persistence-layer schema concern, not something the API computes ad hoc per request.
@@ -42,23 +42,31 @@ The API only reads from the features table (`ST_Intersects`/`&&` spatial index r
 ## 3. Data flow
 
 ```
- Overpass API (OSM)
-        │  batch fetch (daily cron / manual dispatch), driven by data/cities.json
+ Geofabrik North Carolina .osm.pbf     static HTTPS file, cached;
+        │                              downloaded/refreshed on the daily cron / manual dispatch
         ▼
- Application layer: fetch → transform → UPSERT  ──Contract B──▶  Persistence layer
- (scripts/, Python)                                              (PostgreSQL + PostGIS)
-                                                                          │
-                                                                  Contract C (read-only)
-                                                                          ▼
-                                                                    API layer
-                                                          (ASP.NET Core + Npgsql + NTS)
-                                                              GET /features?bbox=...
-                                                                          │
-                                                                  Contract A
-                                                                          ▼
-                                                                    UI layer
-                                                    (Lit + Mapbox GL, fetch/update on moveend)
+ osmium extract --strategy=smart       clip to each AOI in data/cities.json (overlapping AOIs are fine)
+        │
+        ▼
+ osm2pgsql (flex / Lua config)  ──▶  raw OSM schema in PostGIS
+        │                             osm2pgsql-owned, dropped + reloaded each run; outside Contracts B/C
+        ▼
+ Application layer: ingestion SQL → transform → UPSERT  ──Contract B──▶  Persistence layer
+ (scripts/, Python)                                                     (PostgreSQL + PostGIS, features table)
+                                                                                 │
+                                                                         Contract C (read-only)
+                                                                                 ▼
+                                                                           API layer
+                                                                 (ASP.NET Core + Npgsql + NTS)
+                                                                     GET /features?bbox=...
+                                                                                 │
+                                                                         Contract A
+                                                                                 ▼
+                                                                           UI layer
+                                                           (Lit + Mapbox GL, fetch/update on moveend)
 ```
+
+The raw OSM schema is physically in the same PostGIS instance but sits **outside** Contracts B and C: it's `osm2pgsql`-owned and drop-and-reloaded each run, not the migration-managed `features` table. The Epic 4 ingestion pivot (multi-city-expansion.md §4.3) rewrites everything *above* the Contract B write — Contracts A, B, and C are unchanged by it. `data/cities.json` drives the clip step; the daily cron / manual dispatch drives the whole chain, with no live query against a third-party service anywhere in it.
 
 ## 4. Status of the detail docs
 
@@ -74,7 +82,7 @@ One genuinely cross-cutting question remains **not** resolved by this pass — m
 
 Not part of the architecture — flagging separately since they're real, currently-shipping issues in `scripts/fetch_data.py` that `application-layer.md` surfaced by reading actual output (`data/export.geojson`), not by reasoning about the design in the abstract:
 
-1. **`transform_relation_feature` (line ~249) silently clobbers `properties.type`.** It spreads `tags` over `properties` after the base spread, and every route relation's OSM tags include `type: "route"` — this overwrites the original `properties.type: "relation"` in the output. Confirmed in the current `data/export.geojson`: route features show `"type": "route"`, not `"relation"`. Doesn't affect today's static-file pipeline (nothing reads `properties.type` downstream), but it matters for Contract B: the ingestion loader needs the real OSM element type to build the `(osm_type, osm_id)` UPSERT key, and can't get it by reading `properties.type` off a transformed relation feature. `application-layer.md` §5 recommends fixing this with an explicit `osmType` field.
+1. **`transform_relation_feature` (line ~249) silently clobbers `properties.type`.** It spreads `tags` over `properties` after the base spread, and every route relation's OSM tags include `type: "route"` — this overwrites the original `properties.type: "relation"` in the output. Confirmed in the current `data/export.geojson`: route features show `"type": "route"`, not `"relation"`. Doesn't affect today's static-file pipeline (nothing reads `properties.type` downstream), but it matters for Contract B: the ingestion loader needs the real OSM element type to build the `(osm_type, osm_id)` UPSERT key, and can't get it by reading `properties.type` off a transformed relation feature. `application-layer.md` §5 recommends fixing this with an explicit `osmType` field. (Post-pivot the loader can also read element type straight from the raw `osm2pgsql` schema, but the explicit `osmType` field on the transform output is still wanted for transform-contract clarity.)
 2. **`highway_roads` list (`scripts/fetch_data.py` lines 133–134) has a missing comma** between `"tertiary_link"` and `"living_street"` — Python string-literal concatenation silently merges them into one invalid list entry, so `"living_street"` is not actually a member of `highway_roads` today. A `highway=living_street` way currently falls through to `unknown_features` and is dropped from `export.geojson` entirely, rather than being rendered as a road.
 
 **Reconciled against prd.md (§6): both are now blockers, not optional cleanup.** When these were first flagged, the framing was "worth fixing independent of the migration, happy to patch if wanted." prd.md changes that:
@@ -91,7 +99,7 @@ Both should be fixed as part of the migration work, not treated as a nice-to-hav
 - ~~Send a `zoom` hint alongside `bbox` from the UI?~~ (ui-layer.md §6/§9, api-layer.md §2) — **resolved 2026-08-21 (story 3.1): yes, from day one.** Contract A's request shape above now includes `zoom` (valued from `map.getZoom()`), settled once rather than needing a later UI change when zoom-tiered `ST_Simplify` lands server-side. Not a new ask of the API layer — it already reserved the param name and story 2.10 already accepts-and-ignores it.
 - API auth: currently none (S3 static file was public; bbox API would be too) — confirmed explicitly in `api-layer.md` §6, carried forward as a deliberate choice, not an oversight.
 - **`state = "proposed"` filtering location** (persistence-layer.md §9) — currently a UI-side Mapbox filter (`bikemap-app.js`); persistence/API layers pass `state` through unfiltered. Fine to leave as-is; flagged only because it's a responsibility question, not a performance one.
-- **Deleted-OSM-feature handling** (application-layer.md §10, persistence-layer.md §5) — genuinely undecided by design (both docs flag it rather than guess). `persistence-layer.md`'s `last_seen_at` column keeps the door open without committing to building detection now.
+- **Deleted-OSM-feature handling** (application-layer.md §10, persistence-layer.md §5) — genuinely undecided by design (both docs flag it rather than guess). `persistence-layer.md`'s `last_seen_at` column keeps the door open without committing to building detection now. The Epic 4 ingestion pivot (multi-city-expansion.md §4.3) shifts the tradeoff toward "buildable": ingesting from a full regional extract gives each run an authoritative per-run picture of everything currently in OSM across the configured areas, so detect-and-delete is more tractable than under per-query ingestion. Still an open call, not a commitment.
 - **Payload-size/latency logging** — worth adding opportunistically (api-layer.md §8) so there's real data whenever simplification is revisited; not a launch gate. See §6.
 - **Whether "outside configured coverage" needs its own UI treatment**, distinct from "queried but genuinely empty" — surfaced by reconciling against prd.md; see §6.
 - None of this changes `mapbox-navigation.js`'s use of Mapbox's own Directions API — routing across our own data stays a non-goal (multi-city-expansion.md §3).
@@ -102,6 +110,6 @@ prd.md was drafted after the four layer docs above, working from the finished ar
 
 - **Simplification stays deferred, per prd.md — not a launch gate.** api-layer.md §4 and persistence-layer.md §3 both frame `ST_Simplify`/`ST_SimplifyPreserveTopology` as "not built in v1... revisit only if it actually bites at real usage levels." prd.md's success metrics deliberately don't set a latency/load-time bar (Sean is tracking that separately, outside this doc), so nothing here overrides that posture — Option A (query-time `ST_SimplifyPreserveTopology`) stays unbuilt-by-default as designed. The one thing worth keeping regardless: api-layer.md §8's payload-size/latency logging is cheap to add now and is the only way to know later *whether* this is worth building — worth doing opportunistically, not because prd.md requires it.
 - **Named routes create a real tension between FR-3 and FR-5 — resolved by story 2.2's spike, in FR-3's favor.** FR-3 wants continuous, unbroken route rendering; FR-5 wants payload scoped to the viewport. The originally-recorded "no clipping" answer satisfied FR-3 by always returning a route's full geometry once any part intersects the bbox — which api-layer.md §3 itself flags means "a route far larger than the viewport contributes its full geometry to every intersecting request's payload," directly working against FR-5 for any city-spanning route. Clipping to the query bbox would resolve the tension in FR-5's favor (payload actually stays viewport-scoped) without costing FR-3 anything visually, since Mapbox GL already clips rendering to the canvas regardless — the only real cost is the `cycling-route-symbols` label-stability risk noted above. **Decided 2026-08-20: don't clip.** Measured against the largest route relation currently in the dataset (Cross Charlotte Trail, 5,039 vertices): unclipped payload is 124,978 bytes vs. 63,601 bytes clipped for a bbox covering half its extent — a real ~2x saving, but not so disproportionate as to override the label-anchor risk, which is structurally worse than originally framed once Epic 3's per-`moveend` refetch-and-`setData()` pattern is accounted for (a route's start point and vertex sequence would change on every pan under clipping, not just at a single frame). FR-5's payload-scoping goal for routes is left to `ST_Simplify` (§4/api-layer.md §4) if/when real usage data shows it's needed, rather than to per-request clipping. See api-layer.md §3 for the full writeup.
-- **"Seamless" coverage is scoped to configured, proximate Coverage Areas — not a gap-free metro.** application-layer.md §3 clusters cities by proximity (~15–20km) and unions each cluster's bbox for one Overpass query; a Coverage Area with no nearby cluster-mate only ever gets its own bbox ingested. prd.md UJ-4 ("infrastructure loads in for whatever's currently in view... including areas outside the original four") reads as broader than that — a rider panning into genuinely uncovered territory between two distant configured cities will correctly see nothing there, which is expected behavior (prd.md §5 Non-Goals already covers "coverage of areas not present in the configuration") but isn't obviously distinguishable, from the map alone, from a bug. Worth a one-line UI affordance decision (e.g., does the map visually distinguish "no data because nothing's here" from "no data because this area isn't configured yet"?) — flagged as an open question above rather than answered here, since it's a UI/product call, not an architecture one.
+- **"Seamless" coverage is scoped to configured Coverage Areas — not a gap-free metro.** The ingestion pipeline (multi-city-expansion.md §4.3) clips one regional OSM extract to each configured area's AOI with `osmium extract`; an area with no nearby neighbor simply gets its own clip, and nothing is ingested for the gaps between distant configured areas. prd.md UJ-4 ("infrastructure loads in for whatever's currently in view... including areas outside the original four") reads as broader than that — a rider panning into genuinely uncovered territory between two distant configured cities will correctly see nothing there, which is expected behavior (prd.md §5 Non-Goals already covers "coverage of areas not present in the configuration") but isn't obviously distinguishable, from the map alone, from a bug. Worth a one-line UI affordance decision (e.g., does the map visually distinguish "no data because nothing's here" from "no data because this area isn't configured yet"?) — flagged as an open question above rather than answered here, since it's a UI/product call, not an architecture one.
 
 Also carried forward from §4's bug reconciliation above: both pre-existing pipeline bugs are now blockers for FR-1 and FR-6/SM-2 respectively, not optional cleanup — see §4.
