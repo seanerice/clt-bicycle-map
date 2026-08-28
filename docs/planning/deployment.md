@@ -43,7 +43,7 @@ Before planning anything new, we checked what's actually running in the AWS acco
 ```
 Cloudflare (DNS + proxy)
  ├─ bikemap.seanerice.dev  ──proxied──▶ CloudFront (new dist) ──▶ S3 (frontend bucket)
- └─ api.bikemap.seanerice.dev ─proxied▶ EC2 Elastic IP ──▶ nginx (Cloudflare Origin CA cert) ──▶ api container ──▶ db container
+ └─ bikemap-api.seanerice.dev ─proxied▶ EC2 Elastic IP ──▶ nginx (Cloudflare Origin CA cert) ──▶ api container ──▶ db container
 
 osm-refresh.yml (unchanged) ──writes──▶ S3 (bikemap bucket) — no longer publicly readable; data.bikemap.seanerice.dev retired (§4 Phase 3)
 ```
@@ -58,10 +58,11 @@ osm-refresh.yml (unchanged) ──writes──▶ S3 (bikemap bucket) — no lon
 - **No SSH.** Security group opens only 80/443 to `0.0.0.0/0`. Access for both humans and CI is via **AWS Systems Manager Session Manager** — no key pair to leak, no stale IP allowlist like the current box has.
 - An IAM instance role grants: `AmazonSSMManagedInstanceCore`, `ssm:GetParameter` (for the two secrets below), and scoped S3 write access to a `db-backups/` prefix in the existing `bikemap` bucket.
 - Docker + the Compose plugin installed via EC2 user-data at launch (cloud-init), so the box is reproducible from the launch script rather than hand-configured.
-- An Elastic IP, so `api.bikemap.seanerice.dev` doesn't need to change if the instance ever stops/starts (unlike the current box).
+- An Elastic IP, so `bikemap-api.seanerice.dev` doesn't need to change if the instance ever stops/starts (unlike the current box).
 - A new `docker-compose.prod.yml` override on top of the existing `docker-compose.yml`:
   - Drops the `5432:5432` and `5000:8080` host port publishes (dev-only conveniences today) — only nginx's 80/443 are exposed.
-  - Adds an `nginx` service: reverse-proxies `api.bikemap.seanerice.dev` → `api:8080`, TLS via a **Cloudflare Origin CA certificate** rather than Let's Encrypt/Caddy. Since Cloudflare already terminates edge TLS for the domain (it's already proxying `bikemap.seanerice.dev` today), an Origin CA cert (issued once, valid up to 15 years, no renewal automation needed) with Cloudflare set to "Full (strict)" SSL mode is simpler than running a Let's Encrypt client on the box.
+  - Adds an `nginx` service: reverse-proxies `bikemap-api.seanerice.dev` → `api:8080`, TLS via a **Cloudflare Origin CA certificate** rather than Let's Encrypt/Caddy. Since Cloudflare already terminates edge TLS for the domain (it's already proxying `bikemap.seanerice.dev` today), an Origin CA cert (issued once, valid up to 15 years, no renewal automation needed) with Cloudflare set to "Full (strict)" SSL mode is simpler than running a Let's Encrypt client on the box.
+    - **Originally planned as `api.bikemap.seanerice.dev`** (two levels under `seanerice.dev`). **Changed to the single-level `bikemap-api.seanerice.dev` during story 8.7's cutover**: Cloudflare's free Universal SSL edge certificate (the cert Cloudflare presents to browsers, distinct from the Origin CA cert above, which is only ever presented to Cloudflare's own infrastructure) auto-provisions covering just the zone apex and one level of wildcard (`seanerice.dev` + `*.seanerice.dev`) — confirmed directly against the account's actual edge-certificate coverage, not assumed. A two-level hostname falls outside that, and Cloudflare refused to proxy the record. Considered Cloudflare's paid Advanced Certificate Manager (~$5-10/mo, not budgeted in §5) and the free Total TLS feature (not available on this account's plan) before settling on the rename as the zero-added-cost fix. Custom-uploading a self-signed cert for the edge leg isn't an option regardless of plan — unlike the Origin CA cert, this one is presented directly to visitors' browsers, which only trust certs chained to a public root CA.
   - Adds a `migrator` service — a new, small `db/Migrations/Dockerfile` (doesn't exist yet) built from the existing `db/Migrations` project with the `dotnet-ef` tool installed, entrypoint `dotnet ef database update`. Run one-shot (`docker compose run --rm migrator`) over the compose-internal network, so migrations never need Postgres exposed to the host or internet. This is the missing piece today — `dotnet ef` currently only works because `docker-compose.yml` happens to publish `5432` to `localhost` for local dev; that goes away in prod.
 - **Secrets** (`POSTGRES_PASSWORD`, and a GHCR pull token if the image repo ends up private — see §6) live in **SSM Parameter Store as `SecureString`s**, fetched into a `.env` file by the instance at boot. They never appear in a GitHub Actions log.
 - **Backups**: a systemd timer on the box runs `docker compose exec db pg_dump ... | gzip` nightly, uploads to `s3://bikemap/db-backups/`, with an S3 lifecycle rule expiring objects after 30 days.
@@ -70,7 +71,7 @@ osm-refresh.yml (unchanged) ──writes──▶ S3 (bikemap bucket) — no lon
 
 - New bucket (e.g. `bikemap-frontend`) + new CloudFront distribution, ACM cert for `bikemap.seanerice.dev` (CloudFront requires ACM certs in `us-east-1` regardless of where the bucket lives).
 - Deployed via `aws s3 sync website/dist s3://bikemap-frontend/ --delete` + a CloudFront invalidation, mirroring the exact pattern `osm-refresh.yml` already uses for the data bucket.
-- `API_BASE_URL` baked in at build time (webpack `DefinePlugin`, per story 3.3) as `https://api.bikemap.seanerice.dev`.
+- `API_BASE_URL` baked in at build time (webpack `DefinePlugin`, per story 3.3) as `https://bikemap-api.seanerice.dev`.
 
 ### CI/CD
 
@@ -86,18 +87,18 @@ osm-refresh.yml (unchanged) ──writes──▶ S3 (bikemap bucket) — no lon
 
 ## 4. Migration plan: expand → cutover → contract
 
-**Phase 1 — Expand** (new stuff stood up, live site untouched)
-1. `infra/` aws-cli scripts: create the IAM instance role + SSM parameters, launch the new EC2 instance, allocate + associate the Elastic IP, create the frontend S3 bucket + CloudFront distribution + ACM cert.
-2. Create the GitHub OIDC IAM role (one-time, via aws-cli).
-3. Add `docker-compose.prod.yml`, the `nginx` service config, and `db/Migrations/Dockerfile`.
-4. Deploy `db` + `api` + `migrator` to the new box; issue the Cloudflare Origin CA cert and configure nginx.
-5. Verify end-to-end **before touching DNS**: hit the new Elastic IP directly with a `Host:` header override for the API, and the raw `*.cloudfront.net` URL for the frontend. Confirm `/health`, a real `/features?bbox=...` query, and the frontend rendering against it (pointed at the new IP via a local hosts-file override or a temporary build).
+**Phase 1 — Expand ✅ done (story 8.7, 2026-08-27/28)** (new stuff stood up, live site untouched)
+1. ✅ `infra/` aws-cli scripts: create the IAM instance role + SSM parameters, launch the new EC2 instance, allocate + associate the Elastic IP, create the frontend S3 bucket + CloudFront distribution + ACM cert.
+2. ✅ Create the GitHub OIDC IAM role (one-time, via aws-cli).
+3. ✅ Add `docker-compose.prod.yml`, the `nginx` service config, and `db/Migrations/Dockerfile`.
+4. ✅ Deploy `db` + `api` + `migrator` to the new box; issue the Cloudflare Origin CA cert and configure nginx.
+5. ✅ Verify end-to-end **before touching DNS**: hit the new Elastic IP directly with a `Host:` header override for the API, and the raw `*.cloudfront.net` URL for the frontend. Confirm `/health`, a real `/features?bbox=...` query, and the frontend rendering against it (pointed at the new IP via a local hosts-file override or a temporary build).
 
-**Phase 2 — Cutover**
-6. Cloudflare DNS: point `bikemap.seanerice.dev` at the new CloudFront distribution (proxied, matching how `data.` already works structurally, just proxied instead of DNS-only since that's how the bare domain behaves today). Add `api.bikemap.seanerice.dev` → new Elastic IP (proxied, SSL mode Full-strict).
-7. Watch for a soak period (a few days) — confirm real traffic works, logs are clean, no CORS/cert surprises.
+**Phase 2 — Cutover ✅ done (2026-08-28)**
+6. ✅ Cloudflare DNS: point `bikemap.seanerice.dev` at the new CloudFront distribution (proxied, matching how `data.` already works structurally, just proxied instead of DNS-only since that's how the bare domain behaves today). Add `bikemap-api.seanerice.dev` → new Elastic IP (proxied, SSL mode Full-strict).
+7. **Not done as originally written** — Sean's call: proceed straight into cutover in the same session Phase 1 verification passed, rather than wait out a multi-day soak period. This was a deliberate, informed acceleration past this doc's own suggested pace, not an oversight; keep an eye on logs/CORS/cert behavior over the days after, same things this step would have caught before cutover instead of after.
 
-**Phase 3 — Contract**
+**Phase 3 — Contract (not started)**
 8. Terminate `i-08cd4f6c4a4106a78`, delete `sg-087091be2c5f96f83` and the `bikemap-site-key` key pair (after confirming nothing else references them).
 9. Delete the `data.bikemap.seanerice.dev` CloudFront distribution (`E27BZDOG02ZLBY`) and its Cloudflare DNS record — no consumer left post-Epic-3 (§1). Leave the `bikemap` S3 bucket and `osm-refresh.yml`'s daily sync untouched; only the public read path goes away.
 

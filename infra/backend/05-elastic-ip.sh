@@ -2,7 +2,7 @@
 # infra/backend/05-elastic-ip.sh
 #
 # Allocates an Elastic IP and associates it with the backend instance, so
-# api.bikemap.seanerice.dev doesn't need to change if the instance ever
+# bikemap-api.seanerice.dev doesn't need to change if the instance ever
 # stops/starts (deployment.md §3) — unlike the current legacy box, whose
 # public IP is a non-guaranteed auto-assigned address.
 #

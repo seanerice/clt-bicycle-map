@@ -2,7 +2,7 @@
 
 Idempotent `aws-cli` shell scripts that provision the AWS resources
 described in [`docs/planning/deployment.md`](../docs/planning/deployment.md)
-§3 ("Target architecture") — a `t4g.micro` EC2 box running `db`+`api` via
+§3 ("Target architecture") — a `t3a.micro` EC2 box running `db`+`api` via
 docker-compose, and an S3+CloudFront static frontend. Plain `aws-cli`
 shell, not Terraform/CDK/Pulumi, per deployment.md §2.
 
@@ -56,8 +56,8 @@ Run in this order:
    `POSTGRES_PASSWORD`. No GHCR pull token parameter — the `api` image's
    GHCR repo is public (deployment.md §6), so nothing is needed to pull
    it.
-4. **`04-launch-instance.sh`** — launches the `t4g.micro` instance
-   (Amazon Linux 2023, arm64), attached to steps 1–2's role and security
+4. **`04-launch-instance.sh`** — launches the `t3a.micro` instance
+   (Amazon Linux 2023, x86_64), attached to steps 1–2's role and security
    group, with [`user-data.sh`](./backend/user-data.sh) installing
    Docker + the Compose plugin at boot (nothing app-specific — deploying
    the app itself is story 8.3/8.4/8.7's job). Passes
@@ -68,7 +68,7 @@ Run in this order:
    safe way to sanity-check credentials ahead of story 8.5 actually
    running this for real.
 5. **`05-elastic-ip.sh`** — allocates an Elastic IP and associates it
-   with the instance from step 4, so `api.bikemap.seanerice.dev` stays
+   with the instance from step 4, so `bikemap-api.seanerice.dev` stays
    stable across stop/start.
 
 ## `infra/frontend/` — story 8.2
