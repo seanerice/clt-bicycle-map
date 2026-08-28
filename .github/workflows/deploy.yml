@@ -298,17 +298,38 @@ jobs:
           # start with an empty POSTGRES_PASSWORD). The fetch uses the
           # box's own IAM instance role (01-iam-role.sh's scoped
           # ssm:GetParameter grant), not this job's OIDC role.
+          #
+          # `set -e` is load-bearing, not boilerplate: AWS-RunShellScript
+          # concatenates every commands=[...] entry into ONE script and
+          # runs it without `set -e` by default, so a failing line does
+          # NOT stop the next one from running — the overall SSM command
+          # status reflects only the LAST line's exit code. Found the
+          # hard way in story 8.7: `docker compose run --rm migrator`
+          # failed ("compose build requires buildx 0.17.0 or later" — a
+          # second real bug, the box's bundled buildx was too old; also
+          # fixed, in user-data.sh), but because `up -d api nginx` right
+          # after it still succeeded, the whole deploy reported Success
+          # with `api`/`nginx` running against a database that was never
+          # actually migrated. `set -e` makes a failure anywhere in this
+          # script abort immediately and correctly report Failed.
+          #
+          # `docker compose pull` also needed both `-f` flags added here
+          # (it was missing them) — without docker-compose.prod.yml
+          # merged in, it never sees the `image:` key added for #69, so
+          # it silently skips `api` ("Skipped No image to be pulled")
+          # rather than actually pulling the image `up -d` then runs.
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.backend.outputs.instance_id }}" \
             --document-name "AWS-RunShellScript" \
             --comment "bikemap deploy ${{ github.sha }}" \
             --parameters commands='[
+              "set -e",
               "test -d /opt/bikemap/.git || git clone --branch v2 https://github.com/seanerice/clt-bicycle-map.git /opt/bikemap",
               "cd /opt/bikemap",
               "git fetch origin",
               "git reset --hard ${{ github.sha }}",
               "test -f /opt/bikemap/.env || (echo POSTGRES_PASSWORD=$(aws ssm get-parameter --region us-east-1 --name /bikemap/prod/POSTGRES_PASSWORD --with-decryption --query Parameter.Value --output text) > /opt/bikemap/.env && chmod 600 /opt/bikemap/.env)",
-              "docker compose pull",
+              "docker compose -f docker-compose.yml -f docker-compose.prod.yml pull",
               "docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrator",
               "docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d api nginx"
             ]' \

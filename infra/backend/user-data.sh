@@ -37,6 +37,23 @@ curl -SL \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
+# The `docker` package's bundled buildx plugin (0.12.1) is too old for
+# this compose version's `run --rm migrator` — migrator has no pushed
+# image (only `build:`), so building it hits "compose build requires
+# buildx 0.17.0 or later" and fails. Found the hard way in story 8.7:
+# because deploy.yml's SSM script has no `set -e`, that build failure
+# didn't stop `up -d api nginx` from running next, so the deploy
+# reported success with `api`/`nginx` up but the database never
+# migrated. Overwriting the plugin with a current release fixes the
+# build; deploy.yml's `set -e` fix (added alongside this) makes sure a
+# future failure here actually fails the deploy instead of continuing
+# past it. Version pinned (not "latest") to match this repo's existing
+# convention for base images/tools that get baked into infrastructure.
+curl -SL \
+  "https://github.com/docker/buildx/releases/download/v0.36.1/buildx-v0.36.1.linux-amd64" \
+  -o /usr/local/lib/docker/cli-plugins/docker-buildx
+chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+
 # Public repo, no auth needed. --branch v2 because this whole migration
 # (Epics 1-8) has been developed as a stack of PRs against `v2`, which
 # has never merged into `main` (see .github/workflows/deploy.yml's header
