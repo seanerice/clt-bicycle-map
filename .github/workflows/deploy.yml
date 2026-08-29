@@ -318,6 +318,18 @@ jobs:
           # merged in, it never sees the `image:` key added for #69, so
           # it silently skips `api` ("Skipped No image to be pulled")
           # rather than actually pulling the image `up -d` then runs.
+          #
+          # The trailing three `bikemap-ingest` lines mirror what
+          # infra/backend/user-data.sh installs at first boot (story 4.3).
+          # user-data.sh only runs when a NEW instance boots, so the box
+          # currently in service — launched before story 4.3 existed —
+          # would never pick up the nightly ingestion timer. Repeating the
+          # install here converges an already-running box to the same
+          # state on its next deploy. `cp` / `daemon-reload` /
+          # `enable --now` are all idempotent, so this is a no-op once the
+          # timer is in place. It installs and enables the schedule only —
+          # it does NOT run the pipeline (the timer fires `ingest --all`
+          # at 05:00 UTC on its own).
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.backend.outputs.instance_id }}" \
             --document-name "AWS-RunShellScript" \
@@ -331,7 +343,10 @@ jobs:
               "test -f /opt/bikemap/.env || (echo POSTGRES_PASSWORD=$(aws ssm get-parameter --region us-east-1 --name /bikemap/prod/POSTGRES_PASSWORD --with-decryption --query Parameter.Value --output text) > /opt/bikemap/.env && chmod 600 /opt/bikemap/.env)",
               "docker compose -f docker-compose.yml -f docker-compose.prod.yml pull",
               "docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrator",
-              "docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d api nginx"
+              "docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d api nginx",
+              "cp infra/backend/systemd/bikemap-ingest.service infra/backend/systemd/bikemap-ingest.timer /etc/systemd/system/",
+              "systemctl daemon-reload",
+              "systemctl enable --now bikemap-ingest.timer"
             ]' \
             --query "Command.CommandId" --output text)
 
