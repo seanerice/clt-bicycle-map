@@ -44,9 +44,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIR = REPO_ROOT / "db" / "Migrations"
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 
-# Make load_export_to_postgis.py (a plain script, not a package) importable
-# from the test module, so tests reuse its INSERT_SQL rather than
-# duplicating the UPSERT statement.
+# Put scripts/ on sys.path so the tests can import the `pipeline` package
+# (`from pipeline.ingest import INSERT_SQL`, `from pipeline import config`, etc.)
+# without installing it.
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 

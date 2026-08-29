@@ -1,0 +1,8 @@
+{
+  "cities": [
+    { "name": "Charlotte",   "state": "NC", "osmRelationId": 177415, "bbox": null },
+    { "name": "Belmont",     "state": "NC", "osmRelationId": 179740, "bbox": null },
+    { "name": "Cramerton",   "state": "NC", "osmRelationId": 176891, "bbox": null },
+    { "name": "McAdenville", "state": "NC", "osmRelationId": 179731, "bbox": null }
+  ]
+}

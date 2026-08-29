@@ -1,0 +1,18 @@
+# bikemap-ingest.timer — story 4.3 (docs/planning/stories.md).
+#
+# Fires bikemap-ingest.service daily at 05:00. This replaces the retired
+# `schedule: - cron: "0 5 * * *"` trigger in
+# .github/workflows/osm-refresh.yml — same wall-clock time: systemd
+# OnCalendar is in the system timezone, which on a default Amazon Linux
+# 2023 box is UTC, so 05:00 here matches the old "0 5 * * *" UTC cron.
+# Installed and enabled onto the EC2 box by infra/backend/user-data.sh.
+
+[Unit]
+Description=Schedule bikemap nightly OSM ingestion (05:00 daily)
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

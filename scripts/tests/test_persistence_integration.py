@@ -10,7 +10,7 @@ isolation works.
 
 Single documented command to run the whole suite (from repo root, with
 POSTGRES_PASSWORD set — see .env.example, same convention as
-scripts/load_export_to_postgis.py and db/Migrations):
+scripts/pipeline/ingest.py and db/Migrations):
 
     POSTGRES_PASSWORD=<value> pytest scripts/tests/test_persistence_integration.py
 
@@ -26,7 +26,7 @@ import pytest
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from load_export_to_postgis import INSERT_SQL
+from pipeline.ingest import INSERT_SQL
 
 
 def load_fixtures(conn, fixtures):
@@ -43,7 +43,7 @@ def fetch_all(conn):
 # --- Fixture features -------------------------------------------------
 #
 # A small, hand-written set spanning all three feature_type values
-# (road/path/route), matching the param shape load_export_to_postgis.py's
+# (road/path/route), matching the param shape pipeline.ingest's
 # feature_to_params() produces (i.e. what INSERT_SQL expects), not raw
 # GeoJSON features. Geometries are simple two-point LineStrings placed so
 # that ROAD_A and PATH_A fall entirely inside TEST_ENVELOPE below, while

@@ -1,0 +1,20 @@
+# bikemap-ingest.service — story 4.3 (docs/planning/stories.md).
+#
+# Runs the OSM ingestion pipeline once, via the one-shot `ingest` service
+# in docker-compose.prod.yml. Triggered on a schedule by the companion
+# bikemap-ingest.timer (not enabled directly — the timer is what's
+# enabled). Installed onto the EC2 box by infra/backend/user-data.sh,
+# replacing the retired .github/workflows/osm-refresh.yml cron + S3 sync.
+#
+# Runs as root (the default): the box's Docker is root-owned and
+# user-data.sh already does its Docker setup as root.
+
+[Unit]
+Description=bikemap nightly OSM ingestion pipeline (docker compose run --rm ingest --all)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/bikemap
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm ingest --all
