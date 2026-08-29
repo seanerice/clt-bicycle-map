@@ -1,0 +1,9 @@
+# Build context for scripts/Dockerfile (the one-shot `ingest` image).
+# Keep the local virtualenv and the test suite out of the image — it only
+# needs the pipeline package plus requirements.txt.
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+tests/
+.pytest_cache/

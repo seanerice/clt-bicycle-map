@@ -71,3 +71,32 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  # One-shot OSM ingestion pipeline runner (story 4.3) — the same "run it
+  # explicitly, don't leave it running" model as `migrator` above. It has
+  # no restart policy, so a plain `up -d` that happens to include it will
+  # run it once to completion and leave it stopped. On the EC2 box the
+  # bikemap-ingest systemd timer invokes it nightly as:
+  #   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm ingest --all
+  # (ENTRYPOINT is `python -m scripts.pipeline`, so `--all` is the CLI arg.)
+  ingest:
+    build:
+      context: ./scripts   # only needs the pipeline package + its deps — see scripts/Dockerfile's header.
+      dockerfile: Dockerfile
+    environment:
+      # scripts/pipeline/ingest.py's connection_kwargs() reads these.
+      # POSTGRES_HOST=db reaches the `db` service over the compose network;
+      # POSTGRES_DB / POSTGRES_USER default to `bikemap` in that function,
+      # which already matches the `db` service, so they're left unset.
+      POSTGRES_HOST: db
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # data/cities.json lives at the repo root, outside this service's
+      # ./scripts build context, but scripts/pipeline/config.py resolves it
+      # relative to the package (REPO_ROOT/data/cities.json -> /app/data/
+      # here). Mount it read-only so coverage edits take effect on the next
+      # run without an image rebuild.
+      - ./data:/app/data:ro
+    depends_on:
+      db:
+        condition: service_healthy
