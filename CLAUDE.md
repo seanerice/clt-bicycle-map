@@ -7,10 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 CLT Bicycle Map is a static web map of Charlotte, NC (and a few nearby towns) showing bike lanes, cycleways, and bike routes sourced from OpenStreetMap. It has three parts:
 
 - `website/` — a Lit + Mapbox GL frontend, built with webpack, that renders the map
-- `scripts/` — a Python pipeline that queries the Overpass API for OSM cycling data, transforms it into GeoJSON, and is deployed to S3
-- `.github/workflows/osm-refresh.yml` — a scheduled GitHub Action that runs the pipeline and syncs `data/` to S3 daily
+- `scripts/pipeline/` — a Python package (`config` / `transform` / `overpass` / `ingest` + a thin `__main__`) that fetches OSM cycling data via the Overpass API per `data/cities.json` entry, transforms it, and UPSERTs it straight into the PostGIS `features` table
+- `.github/workflows/osm-refresh.yml` — a scheduled GitHub Action; **currently broken — it still calls the deleted `python fetch_data.py` and is rewritten in story 4.3**
 
-There is no application server. The frontend fetches a single static GeoJSON file directly from `https://data.bikemap.seanerice.dev/export.geojson` (an S3 bucket populated by the pipeline) and loads it as one Mapbox GL GeoJSON source.
+There is no application server yet. The frontend still fetches a single static GeoJSON file directly from `https://data.bikemap.seanerice.dev/export.geojson` (an S3 bucket); the API that reads `features` lands in a later epic. See `docs/planning/` for the in-progress PostGIS + API migration.
 
 ## Commands
 
@@ -25,12 +25,14 @@ npm run test:e2e  # Playwright E2E suite (website/e2e/) — mocks the bbox API a
 ```
 `npm run test:e2e` requires Playwright's Chromium browser once per machine: `npx playwright install chromium` (downloads to a global cache, not the repo).
 
-### Data pipeline (`scripts/`)
+### Data pipeline (`scripts/pipeline/`)
 ```
-pip install -r requirements.txt
-python fetch_data.py   # queries Overpass API per area, writes ../data/export.geojson
+pip install -r scripts/requirements.txt
+# POSTGRES_PASSWORD must be set (repo-root .env) and `docker compose up -d db` running with migrations applied
+python -m scripts.pipeline --area charlotte   # one data/cities.json entry (match on name or osmRelationId)
+python -m scripts.pipeline --all              # every data/cities.json entry
 ```
-`fetch_data.py` has no CLI args — the list of OSM relation area IDs to query (Charlotte, Belmont, Cramerton, McAdenville) is hardcoded near the bottom of the file, as are the Overpass endpoint and retry/backoff behavior. Output is minified GeoJSON at `data/export.geojson`.
+Run from the repo root. Coverage areas live in `data/cities.json` (committed) — an array of `{name, state, osmRelationId, bbox}` objects, exactly one of `osmRelationId` (raw OSM relation id; `overpass.py` adds the `3600000000` Overpass area offset) / `bbox` (`[minLon, minLat, maxLon, maxLat]`) set per entry. Adding coverage is a PR that edits that file. Per area the flow is `overpass.fetch` → `transform.transform_data` → `ingest.upsert` (one transaction per area); there is no file output and no S3 sync — features go straight into the PostGIS `features` table. This is Epic 4 Phase 1: it keeps the per-area Overpass fetch; Phase 2 (stories 4.4–4.9) swaps that for a local OSM extract + `osm2pgsql` and deletes `scripts/pipeline/overpass.py`.
 
 ### Database (`db/`)
 ```
@@ -61,24 +63,23 @@ pip install -r scripts/requirements.txt
 POSTGRES_PASSWORD=<value from .env> pytest scripts/tests -m "not slow"   # fast path
 POSTGRES_PASSWORD=<value from .env> pytest scripts/tests                # full path, includes slow tests
 ```
-Runs against the docker-compose `db` service (per `docs/planning/layers/persistence-layer.md` §8) — a session-scoped fixture in `scripts/tests/conftest.py` runs `docker compose up -d db` and `dotnet ef database update` once, so a fresh `docker compose down -v` environment works with just the one `pytest` command above (both steps are idempotent, so it's also safe to run against a `db` that's already up and migrated). Each test truncates `features` first for isolation — no cross-test state. There is no test suite for the frontend or the `fetch_data.py` pipeline.
+Runs against the docker-compose `db` service (per `docs/planning/layers/persistence-layer.md` §8) — a session-scoped fixture in `scripts/tests/conftest.py` runs `docker compose up -d db` and `dotnet ef database update` once, so a fresh `docker compose down -v` environment works with just the one `pytest` command above (both steps are idempotent, so it's also safe to run against a `db` that's already up and migrated). Each test truncates `features` first for isolation — no cross-test state. `scripts/tests/` also holds `test_transform.py` and `test_config.py` (pure — no DB, no network — covering `scripts/pipeline/transform.py` incl. the two Epic 4 bug fixes, and the `data/cities.json` validator) and `test_pipeline_ingest.py` (`ingest.upsert` idempotency against the live `db`). Note: the shared `conftest.py` still requires `POSTGRES_PASSWORD` and its autouse session fixture still brings up `db` + migrations even for the pure test files. There is no test suite for the frontend.
 
 - `test_persistence_integration.py` — a small hand-written fixture set (not the full `data/export.geojson`) spanning `road`/`path`/`route` covers idempotent UPSERT (`first_seen_at` stable, `last_seen_at` advances on re-load), bbox query correctness (`&&` + `ST_Intersects`), and constraint rejection (`chk_features_geom_valid`, `ux_features_osm_key`) with assertions on the specific constraint name.
 - `test_explain_index_usage.py` (story 1.9, optional per persistence-layer.md §8) — loads ~2000 synthetic rows scattered across a large lon/lat extent, runs `EXPLAIN (ANALYZE, FORMAT JSON)` on a selective bbox query, and asserts the plan uses an Index/Bitmap Index Scan on `idx_features_geom` rather than a `Seq Scan` on `features` — regression insurance against a future migration accidentally dropping/invalidating the spatial index. Marked `@pytest.mark.slow` (registered in `conftest.py`'s `pytest_configure` hook) since generating/loading thousands of rows is noticeably slower than the rest of the suite; excluded by `-m "not slow"` above, included by the plain `pytest scripts/tests` run.
 
 ## Architecture
 
-### Data pipeline (`scripts/fetch_data.py`)
-For each hardcoded OSM area ID, queries the public Overpass API (`overpass-api.de`) for ways/relations tagged as cycleways, bike lanes, or bike routes, with retry/exponential-backoff on rate limiting (429/504). Results per area are combined, converted from Overpass JSON to GeoJSON via `osm2geojson`, then passed through `transform_data`, which:
-- Splits features into roads (`transform_road_feature`) vs. paths (`transform_path_feature`) based on the OSM `highway` tag, using the `highway_roads` / `highway_paths` tag lists.
-- For roads, derives `cyclewayLeft`/`cyclewayRight` (and buffer flags) from the various `cycleway`, `cycleway:left`, `cycleway:right`, `cycleway:both` OSM tag variants — these drive how the frontend renders bike lane style (track/lane/buffered/shared/shoulder).
-- For paths, derives a `bicycle` designation (`designated`/`yes`/`unknown`) and tags `highwayType: "path"`.
+### Data pipeline (`scripts/pipeline/`)
+A Python package, driven by `python -m scripts.pipeline --area <name|id>` / `--all` (`scripts/pipeline/__main__.py`):
+- **`config.py`** — loads/validates `data/cities.json` (committed). Exactly one of `osmRelationId` (raw OSM relation id) / `bbox` (`[minLon, minLat, maxLon, maxLat]`) per entry; validator rejects both-set / neither-set / malformed-bbox. `find_area` matches `--area` on name (case-insensitive) or `osmRelationId`.
+- **`overpass.py`** — Phase 1, disposable (removed in story 4.9). Builds a per-entry Overpass QL query — `osmRelationId` → `area(id:3600000000 + id)` scoped, `bbox` → `[bbox:S,W,N,E]` global — runs the retry/exponential-backoff loop carried over from the old `fetch_data.py` (5 attempts, backoff doubling capped at 60s, explicit 429/504 + `Retry-After`), and converts the result via `osm2geojson`. If an `area(id:)` query returns 0 elements it warns and returns `None` so the caller skips that area (never UPSERT an empty result over good data).
+- **`transform.py`** — the pure `transform_road_feature` / `transform_path_feature` / `transform_relation_feature` / `transform_way_feature` / `transform_data` functions, carried over verbatim from `fetch_data.py` except: a missing comma in `highway_roads` (which had silently dropped every `highway=living_street` way) is fixed; every output carries explicit `osmType` (`way`/`relation` — collision-proof, unlike `properties["type"]` which a route relation's `type=route` tag clobbers) and `featureType` (`road`/`path`/`route`) fields for the loader. Zero heavy imports. Splits roads vs paths by the OSM `highway` tag (`highway_roads` / `highway_paths` lists); derives `cyclewayLeft`/`cyclewayRight` (+ buffer flags) for roads and a `bicycle` designation (`designated`/`yes`/`unknown`) + `highwayType: "path"` for paths.
+- **`ingest.py`** — psycopg3 batch UPSERT into the PostGIS `features` table (`INSERT ... ON CONFLICT (osm_type, osm_id) DO UPDATE SET ..., last_seen_at = now()`, `first_seen_at` left alone) — one transaction per area. `INSERT_SQL` and the `connection_kwargs()` env convention (`POSTGRES_PASSWORD` required; `POSTGRES_HOST`/`PORT`/`DB`/`USER` defaults) were carried forward from the deleted `scripts/load_export_to_postgis.py`; the persistence integration tests import `INSERT_SQL` from here.
 
-The GitHub Actions workflow (`osm-refresh.yml`) runs this daily via cron, on PRs to `main`, and on manual dispatch, then syncs `data/` to the `bikemap` S3 bucket (via `bikemap-staging` environment credentials).
+There is no file output and no S3 sync anymore. `.github/workflows/osm-refresh.yml` still calls the deleted `python fetch_data.py` and is broken until story 4.3 rewrites it.
 
-`scripts/load_neo4j.py` is an in-progress experiment loading `export.geojson` LineStrings into Neo4j via APOC — not currently wired into the pipeline or the frontend.
-
-`scripts/load_export_to_postgis.py` is a throwaway, one-off validation script (story 1.7) that UPSERTs `data/export.geojson` into the `features` table (`db/Migrations`) to validate the PostGIS schema ahead of the real ingestion loader. It is explicitly not the real ingestion loader — a future epic replaces `fetch_data.py`'s `write_data()` with that — and is not wired into `osm-refresh.yml`. Delete it once the real loader lands.
+`scripts/load_neo4j.py` is an in-progress experiment loading GeoJSON LineStrings into Neo4j via APOC — not currently wired into the pipeline or the frontend.
 
 ### Frontend (`website/src/`)
 `bikemap-app.js` is the root Lit element. On `firstUpdated`, it creates the Mapbox GL map, adds `data/export.geojson` (fetched live from S3) as a single `cycling-data` GeoJSON source, and adds several style layers filtered/styled off the properties the pipeline computed:
@@ -93,7 +94,7 @@ Layer visibility is controlled by `layer-widget.js`; `location-search-menu.js` a
 ## Docs
 
 `docs/planning/` holds forward-looking design/architecture docs, reviewed and approved like code — check here before making architectural changes, since they capture decisions (and the *why* behind them) that aren't yet reflected in the code below:
-- [`multi-city-expansion.md`](docs/planning/multi-city-expansion.md) — approved plan to replace the static-GeoJSON-from-S3 model above with PostGIS + a bbox-filtered API (`GET /features?bbox=...`, likely ASP.NET Core/Npgsql), fed by a rebuilt ingestion pipeline that clips a regional OSM extract into PostGIS via `osmium`/`osm2pgsql` (no Overpass in the automated pipeline — decided 2026-08-28), driven by a `data/cities.json` config. **Not yet implemented** — the "Architecture" section above still describes current, pre-migration reality.
+- [`multi-city-expansion.md`](docs/planning/multi-city-expansion.md) — approved plan to replace the static-GeoJSON-from-S3 model above with PostGIS + a bbox-filtered API (`GET /features?bbox=...`, likely ASP.NET Core/Npgsql), fed by a rebuilt ingestion pipeline that clips a regional OSM extract into PostGIS via `osmium`/`osm2pgsql` (no Overpass in the automated pipeline — decided 2026-08-28), driven by a `data/cities.json` config. **Partially implemented** — Epic 4 Phase 1 (`scripts/pipeline/`, `data/cities.json`, the psycopg UPSERT into `features`) is in; still pending are the API, the on-instance cron (story 4.3), and the Phase 2 extract pipeline that drops Overpass (stories 4.4–4.9). The frontend still reads GeoJSON from S3.
 - [`testing-and-tooling.md`](docs/planning/testing-and-tooling.md) — companion plan: containerize the backend (PostGIS + API + pipeline) via docker-compose, a testing strategy by category, and standing AI-tooling practice (add a project-level `run` skill once containerized, add Playwright's run command here once it exists).
 
 `docs/index.html` is unrelated — a GitHub Pages stub, not project documentation.

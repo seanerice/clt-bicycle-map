@@ -42,7 +42,7 @@ import random
 import pytest
 from psycopg.types.json import Jsonb
 
-from load_export_to_postgis import INSERT_SQL
+from pipeline.ingest import INSERT_SQL
 
 # Synthetic data is scattered across a 20deg x 20deg lon/lat box (roughly
 # the size of the eastern half of the continental US) — large relative to
